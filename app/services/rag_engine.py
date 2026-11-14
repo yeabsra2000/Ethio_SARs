@@ -21,7 +21,7 @@ import numpy as np
 
 from app.config import KNOWLEDGE_BASE_DIR, get_settings
 from app.schemas import AnalyzeChangeRequest, AnalyzeChangeResponse
-from app.services.gerd_data import get_scene
+from app.services.gerd_data import SCENES, get_scene
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +33,19 @@ except Exception:  # noqa: BLE001
     genai_types = None  # type: ignore[assignment]
 
 SYSTEM_PROMPT = (
-    "You are an Earth Observation SAR scientist explaining synthetic aperture "
-    "radar imagery to a non-expert audience. Explain radar backscatter "
-    "mechanisms (specular reflection from calm water appears dark, volume "
-    "scattering from vegetation appears medium gray, and double-bounce from "
-    "buildings or the dam wall appears bright white). Ground every claim in the "
-    "retrieved knowledge-base facts and the supplied scene metadata. Be concise, "
-    "accurate, and avoid inventing measurements. Return JSON with exactly the "
-    "keys 'explanation' (string), 'key_takeaways' (array of 2-4 strings), and "
-    "'citations' (array of source filenames)."
+    "You are a synthetic aperture radar (SAR) analyst explaining Sentinel-1 "
+    "imagery of the Grand Ethiopian Renaissance Dam (GERD / Lake Nigat) to a "
+    "non-expert audience. Answer the user's specific question directly and "
+    "concisely. Use the supplied scene metadata, computed water-area changes, "
+    "and retrieved knowledge-base facts. Do not invent measurements. Use radar "
+    "physics only when it helps answer the question; do not default to a "
+    "generic SAR tutorial. If the user greets you, reply in one short sentence "
+    "and suggest a concrete GERD/SAR question. If the question is unrelated to "
+    "GERD or SAR, briefly say that this assistant focuses on GERD SAR analysis "
+    "and redirect. Keep the explanation to 2-5 sentences unless the user asks "
+    "for detail. Return JSON with exactly the keys 'explanation' (string), "
+    "'key_takeaways' (array of 2-4 strings that directly answer the question), "
+    "and 'citations' (array of source filenames actually used)."
 )
 
 _STOPWORDS = {
@@ -174,7 +178,7 @@ class RAGEngine:
     def _generation_config(self, model: str) -> Any:
         """Build a fast, JSON-only generation config for a specific model."""
 
-        timeout_ms = 12000 if "lite" in model else 25000
+        timeout_ms = 18000 if "lite" in model else 30000
         kwargs: dict[str, Any] = {
             "system_instruction": SYSTEM_PROMPT,
             "response_mime_type": "application/json",
@@ -359,6 +363,32 @@ class RAGEngine:
                 f"water area: {scene.water_area_sq_km} sq km | "
                 f"backscatter: {scene.backscatter_summary}"
             )
+
+        lines.append("Curated timeline for all years:")
+        for scene in SCENES:
+            lines.append(
+                f"- {scene.id} | {scene.date.isoformat()} | {scene.label} | "
+                f"water area: {scene.water_area_sq_km} sq km"
+            )
+
+        if len(SCENES) > 1:
+            lines.append("Computed water-area changes between consecutive scenes:")
+            intervals: list[tuple[float, Any, Any]] = []
+            for previous, current in zip(SCENES, SCENES[1:]):
+                delta = current.water_area_sq_km - previous.water_area_sq_km
+                intervals.append((delta, previous, current))
+                direction = "increased" if delta >= 0 else "decreased"
+                lines.append(
+                    f"- {previous.date.isoformat()} to {current.date.isoformat()}: "
+                    f"{direction} by {abs(delta):,.1f} sq km"
+                )
+            largest = max(intervals, key=lambda item: item[0])
+            lines.append(
+                "Largest increase between consecutive curated scenes: "
+                f"{largest[1].date.isoformat()} to {largest[2].date.isoformat()} "
+                f"(+{largest[0]:,.1f} sq km)."
+            )
+
         return "\n".join(lines)
 
     def _build_fallback(
@@ -366,51 +396,178 @@ class RAGEngine:
     ) -> AnalyzeChangeResponse:
         before = get_scene(request.before_scene_id)
         after = get_scene(request.after_scene_id)
+        question = request.user_question.strip()
+        lower = question.lower()
+        citations = sorted({chunk.source for chunk in chunks})
+
+        if re.match(
+            r"^(hi|hello|hey|yo|selam|salam|good\s+(morning|afternoon|evening))\b",
+            lower,
+        ):
+            return AnalyzeChangeResponse(
+                explanation=(
+                    "Hello! I can explain the GERD radar timeline, compare two "
+                    "filling years, or describe what a dark or bright SAR "
+                    "signature means. For example, ask: “Which year had the "
+                    "largest water-area increase?”"
+                ),
+                key_takeaways=[
+                    "Ask about a specific year or a SAR feature to get a focused answer.",
+                    "The local fallback is active; add a Gemini key for full narrative answers.",
+                ],
+                citations=[],
+                model_used="local-fallback",
+                retrieval_mode=self.retrieval_mode,
+                fallback_reason=reason,
+            )
 
         if before and after:
             delta = after.water_area_sq_km - before.water_area_sq_km
             direction = "increased" if delta >= 0 else "decreased"
-            explanation = (
-                f"Between {before.date.isoformat()} and {after.date.isoformat()}, "
-                f"the mapped surface water around {request.location_name} "
-                f"{direction} by about {abs(delta):,.1f} sq km "
-                f"(from {before.water_area_sq_km:,} to {after.water_area_sq_km:,} "
-                f"sq km). In SAR imagery, calm open water acts like a mirror: it "
-                f"reflects the radar pulse away from the sensor, so the reservoir "
-                f"appears very dark or black. Surrounding rough terrain, "
-                f"vegetation, and the dam structure scatter energy back and appear "
-                f"brighter. The change therefore reflects the expansion of the "
-                f"reservoir pool rather than a change in sensor settings."
-            )
-            takeaways = [
-                f"Surface water grew by roughly {abs(delta):,.1f} sq km between "
-                f"the two acquisitions.",
-                "Dark pixels are specular reflection from smooth water, not "
-                "missing data.",
-                "Bright edges trace steep banks, vegetation, and dam "
-                "infrastructure via double-bounce and volume scattering.",
-            ]
+
+            if any(
+                token in lower
+                for token in ("largest", "biggest", "which year", "most increase")
+            ):
+                intervals: list[tuple[float, Any, Any]] = [
+                    (
+                        current.water_area_sq_km - previous.water_area_sq_km,
+                        previous,
+                        current,
+                    )
+                    for previous, current in zip(SCENES, SCENES[1:])
+                ]
+                largest = max(intervals, key=lambda item: item[0])
+                explanation = (
+                    f"The largest mapped water-area increase between consecutive "
+                    f"curated scenes is from {largest[1].date.isoformat()} to "
+                    f"{largest[2].date.isoformat()}: "
+                    f"+{largest[0]:,.1f} sq km. Across the full timeline, surface "
+                    f"water grows from {SCENES[0].water_area_sq_km:,} sq km to "
+                    f"{SCENES[-1].water_area_sq_km:,} sq km, an overall increase "
+                    f"of {SCENES[-1].water_area_sq_km - SCENES[0].water_area_sq_km:,.1f} "
+                    f"sq km."
+                )
+                takeaways = [
+                    f"Largest interval gain: +{largest[0]:,.1f} sq km "
+                    f"({largest[1].year} to {largest[2].year}).",
+                    "The dark reservoir signature grows because calm water "
+                    "reflects radar energy away from the satellite.",
+                ]
+            elif any(
+                token in lower
+                for token in ("capacity", "water volume", "hold", "cubic", "km3", "km³")
+            ):
+                explanation = (
+                    "At full supply level the GERD reservoir is designed to hold "
+                    "roughly 74 billion cubic metres (74 km³) of water, with a "
+                    "surface area of about 1,874 sq km. The curated SAR timeline "
+                    "shows the surface-water signal expanding from "
+                    f"{SCENES[0].water_area_sq_km:,} sq km in {SCENES[0].year} to "
+                    f"{SCENES[-1].water_area_sq_km:,} sq km in {SCENES[-1].year}."
+                )
+                takeaways = [
+                    "Design storage at full supply level: about 74 km³.",
+                    "Full-supply surface area: about 1,874 sq km.",
+                ]
+            elif any(
+                token in lower
+                for token in ("double-bounce", "double bounce", "corner reflector")
+            ):
+                explanation = (
+                    "Double-bounce scattering happens when a radar pulse hits two "
+                    "perpendicular surfaces, such as the ground and a vertical "
+                    "wall, and bounces back toward the satellite. That strong "
+                    "return makes the GERD dam wall, steep rocky banks, and other "
+                    "angular structures appear bright white, while calm water "
+                    "beyond them stays dark."
+                )
+                takeaways = [
+                    "Double-bounce needs two surfaces at roughly a right angle.",
+                    "The dam wall and steep banks are bright because of it.",
+                ]
+            elif any(
+                token in lower
+                for token in ("specular", "why is the water dark", "look dark")
+            ):
+                explanation = (
+                    "Calm water is dark in SAR because the surface acts like a "
+                    "mirror: the radar pulse reflects away from the satellite "
+                    "instead of returning to it. That low backscatter is why the "
+                    "growing GERD reservoir shows up as a large black region, "
+                    "while rough terrain and the dam structure return more energy "
+                    "and appear brighter."
+                )
+                takeaways = [
+                    "Specular reflection makes smooth water look black.",
+                    "The reservoir's dark area grows as filling expands.",
+                ]
+            elif "volume scattering" in lower:
+                explanation = (
+                    "Volume scattering occurs when the radar pulse penetrates "
+                    "vegetation or a rough surface and bounces multiple times "
+                    "inside it. The energy that eventually returns to the "
+                    "satellite produces a medium-gray tone, which is why vegetated "
+                    "and rough terrain around the reservoir is brighter than calm "
+                    "water."
+                )
+                takeaways = [
+                    "Volume scattering produces medium-gray returns.",
+                    "It contrasts with the dark specular return from open water.",
+                ]
+            else:
+                explanation = (
+                    f"You asked about the GERD change from "
+                    f"{before.date.isoformat()} to {after.date.isoformat()}. "
+                    f"The curated surface-water area {direction} by about "
+                    f"{abs(delta):,.1f} sq km "
+                    f"(from {before.water_area_sq_km:,} to "
+                    f"{after.water_area_sq_km:,} sq km). Calm open water appears "
+                    "dark in SAR because it reflects the radar pulse away from the "
+                    "sensor; rough terrain, vegetation, and the dam structure "
+                    "appear brighter."
+                )
+                takeaways = [
+                    f"Surface water {direction} by roughly {abs(delta):,.1f} sq km "
+                    f"between {before.year} and {after.year}.",
+                    "Dark pixels are specular reflection from smooth water, not "
+                    "missing data.",
+                    "Bright edges trace steep banks, vegetation, and dam "
+                    "infrastructure.",
+                ]
         else:
             explanation = (
-                "The scene comparison could not be matched to the curated GERD "
-                "catalog. In general, smooth open water produces specular "
-                "reflection and appears dark in SAR imagery, while rough terrain "
-                "and built structures appear brighter."
+                "The selected scenes are not both in the curated GERD catalog. "
+                "Choose two timeline scenes for a water-area comparison. In "
+                "general, smooth open water appears dark in SAR, while rough "
+                "terrain and built structures appear brighter."
             )
             takeaways = [
+                "Choose two curated scenes to compare water-area changes.",
                 "Dark SAR returns usually indicate smooth water surfaces.",
-                "Bright returns indicate rough or angular structures.",
             ]
 
-        if chunks:
+        if chunks and not any(
+            token in lower
+            for token in (
+                "largest",
+                "biggest",
+                "which year",
+                "capacity",
+                "double-bounce",
+                "double bounce",
+                "specular",
+                "volume scattering",
+                "look dark",
+            )
+        ):
             explanation += (
                 "\n\nRelevant knowledge-base context: "
-                + " ".join(chunk.text.strip().replace("\n", " ") for chunk in chunks[:2])
+                + " ".join(
+                    chunk.text.strip().replace("\n", " ") for chunk in chunks[:1]
+                )
             )
-        elif reason:
-            explanation += f"\n\n(Note: {reason})"
 
-        citations = sorted({chunk.source for chunk in chunks})
         return AnalyzeChangeResponse(
             explanation=explanation,
             key_takeaways=takeaways,
@@ -458,11 +615,13 @@ class RAGEngine:
         ) or "(no knowledge-base passages retrieved)"
 
         prompt = (
-            f"{SYSTEM_PROMPT}\n\n"
-            f"Scene metadata:\n{scene_context}\n\n"
-            f"Retrieved knowledge base:\n{context_text}\n\n"
-            f"User question: {request.user_question}\n\n"
-            "Respond with the JSON object only."
+            f"REFERENCE DATA (do not repeat this verbatim):\n{scene_context}\n\n"
+            f"RETRIEVED KNOWLEDGE BASE:\n{context_text}\n\n"
+            f"USER QUESTION:\n{request.user_question}\n\n"
+            "Answer the USER QUESTION above directly. Do not answer a different "
+            "question and do not paste a generic SAR primer. If the question is "
+            "a greeting, respond briefly and suggest one concrete GERD/SAR "
+            "question. Return only the JSON object."
         )
 
         raw_text = ""

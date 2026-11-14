@@ -501,17 +501,21 @@ The documents are chunked by headings and paragraphs into **10 chunks** of about
 ### Generation
 
 - Primary model: `gemini-3.1-flash-lite`.
-- The prompt contains the system instructions, curated scene metadata, the
-  retrieved passages, and the user question.
+- The prompt contains the system instructions, curated scene metadata, computed
+  water-area changes, the retrieved passages, and the user question.
+- The system prompt explicitly requires a direct answer to the user's question
+  and forbids defaulting to a generic SAR tutorial.
 - The model must return JSON with `explanation`, `key_takeaways`, and
   `citations`.
-- Generation starts with a 12-second timeout for the lite model and 25 seconds
+- Generation starts with an 18-second timeout for the lite model and 30 seconds
   for larger fallbacks, with SDK retries disabled so a stalled request cannot
   hang the demo.
 - If the primary model fails, the engine tries `gemini-3.5-flash` and then a
   local fallback.
-- The local fallback uses the curated scene metadata to explain the water
-  change and appends retrieved context.
+- The local fallback is question-aware: it handles greetings, water-capacity
+  questions, “which year grew the most” comparisons, and core SAR concepts
+  (specular reflection, double-bounce, volume scattering) using curated
+  metadata and retrieved context.
 
 The result includes `model_used`, `retrieval_mode`, and `fallback_reason` so
 the frontend can show exactly what happened.
