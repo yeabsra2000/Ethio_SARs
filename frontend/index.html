@@ -285,7 +285,7 @@
             <select id="after-select"></select>
           </div>
         </div>
-        <div class="tiny muted" style="margin-top:7px">The AI can compare any two scenes. NISAR comparisons are cross-sensor and use approximate browse-derived areas.</div>
+        <div class="tiny muted" style="margin-top:7px">The AI can compare any two scenes. NISAR comparisons use calibrated GCOV HH water masks and remain cross-sensor.</div>
       </section>
     </aside>
 
@@ -314,6 +314,15 @@
     </section>
 
     <aside class="panel right">
+      <section>
+        <div class="section-head">
+          <h2>Calibrated NISAR Change</h2>
+        </div>
+        <div class="output" id="nisar-change">
+          <div class="message tiny">Loading calibrated GCOV statistics…</div>
+        </div>
+      </section>
+
       <section>
         <div class="section-head">
           <h2>AI Change Explainer</h2>
@@ -725,7 +734,7 @@
             <div>
               <div class="title">${esc(scene.year)} · ${esc(scene.label)}${sensorBadge}${badge}</div>
               <div class="meta">${esc(scene.date)} · ${esc(scene.sensor)}</div>
-              <div class="meta"${areaNote}>Water ≈ ${Number(scene.water_area_sq_km).toLocaleString()} km²${scene.area_note ? "*" : ""}</div>
+              <div class="meta"${areaNote}>${scene.platform === "NISAR" ? "Calibrated water" : "Water"} ≈ ${Number(scene.water_area_sq_km).toLocaleString()} km²${scene.area_note ? "*" : ""}</div>
             </div>
             <input class="scene-check" type="checkbox" data-id="${esc(scene.id)}" ${state.selected.has(scene.id) ? "checked" : ""} aria-label="Select ${esc(scene.year)}">`;
           list.appendChild(card);
@@ -853,6 +862,26 @@
           }
         } catch (error) {
           $("scene-list").innerHTML = `<div class="message err">Could not load timeline: ${esc(error.message)}</div>`;
+        }
+      }
+
+      async function loadNisarChange() {
+        const output = $("nisar-change");
+        try {
+          const change = await api("/api/sar/nisar/change", {}, 30000);
+          const fmt = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+          const net = Number(change.net_change_sq_km);
+          const sign = net >= 0 ? "+" : "−";
+          const maskLink = (scene) => scene.water_mask_url
+            ? `<a href="${esc(scene.water_mask_url)}" target="_blank" rel="noreferrer">mask</a>`
+            : "";
+          output.innerHTML = `
+            <div class="message tiny"><strong>${esc(change.before.date)}</strong> ${fmt(change.before.water_area_sq_km)} km² → <strong>${esc(change.after.date)}</strong> ${fmt(change.after.water_area_sq_km)} km²</div>
+            <div class="meta">Net ${sign}${fmt(Math.abs(net))} km² · persistent ${fmt(change.persistent_sq_km)} · lost ${fmt(change.lost_sq_km)} · new ${fmt(change.new_sq_km)}</div>
+            <div class="meta">Jaccard ${Number(change.jaccard).toFixed(3)} · common Otsu ${Number(change.threshold_db).toFixed(2)} dB · 20 m HH GCOV</div>
+            <div class="tiny muted">Threshold-based calibrated estimate, not independently validated. ${maskLink(change.before)} ${maskLink(change.after)}</div>`;
+        } catch (error) {
+          output.innerHTML = `<div class="message tiny err">${esc(error.message)}</div>`;
         }
       }
 
@@ -1125,7 +1154,7 @@
       async function init() {
         bindEvents();
         initMap();
-        await Promise.allSettled([loadHealth(), loadAiStatus(), loadTimeline()]);
+        await Promise.allSettled([loadHealth(), loadAiStatus(), loadTimeline(), loadNisarChange()]);
       }
 
       init();

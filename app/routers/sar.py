@@ -7,9 +7,10 @@ from app.schemas import (
     GerdTimelineResponse,
     LiveSarSearchRequest,
     LiveSarSearchResponse,
+    NisarChangeResponse,
 )
 from app.services.asf_client import search_live
-from app.services.gerd_data import get_scene, get_timeline
+from app.services.gerd_data import get_nisar_change, get_scene, get_timeline
 
 router = APIRouter(prefix="/api/sar", tags=["SAR"])
 
@@ -37,6 +38,26 @@ def gerd_scene(scene_id: str) -> GerdScene:
     if scene is None:
         raise HTTPException(status_code=404, detail=f"Unknown scene id: {scene_id}")
     return scene
+
+
+@router.get(
+    "/nisar/change",
+    response_model=NisarChangeResponse,
+    summary="Calibrated NISAR GCOV water-extent change",
+)
+def nisar_change() -> NisarChangeResponse:
+    """Return the calibrated 12-day NISAR water-mask change over GERD."""
+
+    change = get_nisar_change()
+    if change is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Calibrated NISAR GCOV outputs are not available. Run "
+                "scripts/ingest_nisar_gcov.py --process."
+            ),
+        )
+    return change
 
 
 @router.post(

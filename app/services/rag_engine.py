@@ -38,8 +38,9 @@ SYSTEM_PROMPT = (
     "(GERD / Lake Nigat) to a non-expert audience. Answer the user's specific "
     "question directly and concisely. Use the supplied scene metadata, computed "
     "water-area changes, and retrieved knowledge-base facts. Do not invent "
-    "measurements. Treat NISAR water areas as approximate browse-derived "
-    "estimates, not calibrated measurements, and do not present a Sentinel-1 "
+    "measurements. NISAR water areas come from calibrated L2 GCOV HDF5 "
+    "frequency-A HH masks with a common Otsu threshold; call them "
+    "threshold-based calibrated estimates and do not present a Sentinel-1 "
     "vs NISAR area change as a like-for-like sensor comparison. Use radar "
     "physics only when it helps answer the question; do not default to a "
     "generic SAR tutorial. If the user greets you, reply in one short sentence "
@@ -370,7 +371,13 @@ class RAGEngine:
                 f"band: {scene.frequency_band or 'n/a'} | "
                 f"polarization: {scene.polarization or 'n/a'} | "
                 f"product: {scene.product_type or 'n/a'} | "
+                f"data source: {scene.data_source or 'n/a'} | "
                 f"water area: {scene.water_area_sq_km} sq km"
+                + (
+                    f" | threshold: {scene.threshold_db} dB"
+                    if scene.threshold_db is not None
+                    else ""
+                )
                 + (f" | area note: {scene.area_note}" if scene.area_note else "")
                 + f" | backscatter: {scene.backscatter_summary}"
             )
@@ -385,11 +392,12 @@ class RAGEngine:
 
         if SENTINEL_SCENES and NISAR_SCENES:
             lines.append(
-                "Sensor note: Sentinel-1 is C-band VV; NISAR is L-band HH/HV. "
-                "The NISAR overlays come from public browse PNGs because the full "
-                "GCOV HDF5 products require a NASA Earthdata Login. NISAR water "
-                "areas are Otsu low-backscatter estimates, not calibrated masks, "
-                "so compare them qualitatively with the Sentinel-1 timeline."
+                "Sensor note: Sentinel-1 is C-band VV; NISAR is L-band HH. "
+                "The NISAR values are calibrated from full L2 GCOV HDF5 "
+                "frequency-A HHHH gamma0 using a common Otsu threshold across "
+                "both dates. They are threshold-based calibrated estimates, not "
+                "independently validated water products, and L-band HH is not "
+                "directly comparable to the C-band Sentinel-1 estimates."
             )
 
         if len(SCENES) > 1:
@@ -515,16 +523,16 @@ class RAGEngine:
                     "moisture and biomass more than Sentinel-1 C-band. The GERD "
                     "timeline includes NISAR GCOV scenes from "
                     f"{nisar_dates}, acquired on the same track about 12 days "
-                    "apart. The app uses the public NISAR browse images because "
-                    "the full GCOV HDF5 products need a NASA Earthdata Login; the "
-                    "browse-derived low-backscatter areas are about "
-                    f"{nisar_areas}, but they are approximate and not calibrated "
-                    "water masks."
+                    "apart. The app calibrates the full L2 GCOV HDF5 frequency-A "
+                    "HH gamma0 and applies a common Otsu threshold across both "
+                    "dates. The threshold-based water areas are about "
+                    f"{nisar_areas}; they are calibrated estimates, not "
+                    "independently validated water products."
                 )
                 takeaways = [
-                    "NISAR adds L-band HH/HV observations to the C-band Sentinel-1 timeline.",
+                    "NISAR adds L-band HH GCOV observations to the C-band Sentinel-1 timeline.",
                     "The two NISAR scenes are a 12-day repeat over the same GERD track.",
-                    "NISAR browse-derived areas are approximate, not like-for-like water measurements.",
+                    "NISAR areas are calibrated threshold-based estimates, not like-for-like with Sentinel-1.",
                 ]
             elif any(
                 token in lower
@@ -596,7 +604,7 @@ class RAGEngine:
                 explanation = (
                     f"You asked about the GERD change from "
                     f"{before.date.isoformat()} to {after.date.isoformat()}. "
-                    f"The curated surface-water area {direction} by about "
+                    f"The mapped surface-water area {direction} by about "
                     f"{abs(delta):,.1f} sq km "
                     f"(from {before.water_area_sq_km:,} to "
                     f"{after.water_area_sq_km:,} sq km). Calm open water appears "
@@ -621,8 +629,19 @@ class RAGEngine:
                         " This comparison crosses sensors "
                         f"({before.platform} {before.frequency_band or ''} vs "
                         f"{after.platform} {after.frequency_band or ''}), so treat "
-                        "the area difference as an indicative visual comparison "
-                        "rather than a calibrated like-for-like measurement."
+                        "the area difference as an indicative comparison rather "
+                        "than a like-for-like measurement."
+                    )
+                if (
+                    before.platform == "NISAR"
+                    and after.platform == "NISAR"
+                    and before.threshold_db is not None
+                ):
+                    explanation += (
+                        " Both NISAR areas use calibrated GCOV HH gamma0 and the "
+                        f"same {before.threshold_db:.2f} dB threshold; small "
+                        "changes may still reflect threshold and speckle "
+                        "sensitivity."
                     )
         else:
             explanation = (

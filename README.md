@@ -80,7 +80,7 @@ The app uses a fixed analysis window:
 | Center | 11.215° N, 35.093° E |
 | Bounds | west 34.85°, south 10.85°, east 35.45°, north 11.45° |
 | Approx. window size | ~66 km × ~67 km |
-| Sensors | Sentinel-1 C-band IW VV; NISAR L-band GCOV HH/HV |
+| Sensors | Sentinel-1 C-band IW VV; NISAR L-band GCOV HH |
 
 ---
 
@@ -88,8 +88,8 @@ The app uses a fixed analysis window:
 
 The four Sentinel-1 PNGs served by the app are derived from **real Sentinel-1A
 Interferometric Wide (IW) Ground Range Detected (GRD) High-Resolution Level-1
-products**, not from the synthetic generator. Two additional NISAR L-band browse
-PNGs cover October and November 2026.
+products**, not from the synthetic generator. Two additional NISAR L-band GCOV
+scenes cover October and November 2026.
 
 The original files are:
 
@@ -124,8 +124,8 @@ fresh clone runs immediately without downloading 3.2 GB of radar data.
 
 The Sentinel-1 water-area numbers in the timeline (48.2, 363, 1100, 1874 km²)
 are curated narrative estimates for the demo, not values computed live from the
-rasters. The two NISAR values (1,110.2 and 1,043.2 km²) are browse-derived
-low-backscatter estimates. See
+rasters. The two NISAR values (936.6 and 958.5 km²) are calibrated GCOV HH
+threshold-based estimates. See
 [Accuracy, limits, and attribution](#accuracy-limits-and-attribution).
 
 ### NISAR L-band integration
@@ -133,23 +133,29 @@ low-backscatter estimates. See
 NISAR Level-2 GCOV products are available over GERD. The app uses two
 same-track, descending acquisitions about 12 days apart:
 
-| Date | Product ID | Polarization | Overlay |
-| --- | --- | --- | --- |
-| 2026-10-25 | `NISAR_L2_PR_GCOV_034_021_D_083_2005_DHDH_A_20261025T160621_20261025T160656_P05036_N_F_J_001` | HH/HV | `/static/overlays/nisar_2026_10_25.png` |
-| 2026-11-06 | `NISAR_L2_PR_GCOV_035_021_D_083_2005_SHSH_A_20261106T160622_20261106T160656_P05036_N_F_J_001` | HH | `/static/overlays/nisar_2026_11_06.png` |
+| Date | Product ID | Available polarization | Processed | Overlay |
+| --- | --- | --- | --- | --- |
+| 2026-10-25 | `NISAR_L2_PR_GCOV_034_021_D_083_2005_DHDH_A_20261025T160621_20261025T160656_P05036_N_F_J_001` | HH/HV | HH | `/static/overlays/nisar_2026_10_25_gcov.png` |
+| 2026-11-06 | `NISAR_L2_PR_GCOV_035_021_D_083_2005_SHSH_A_20261106T160622_20261106T160656_P05036_N_F_J_001` | HH | HH | `/static/overlays/nisar_2026_11_06_gcov.png` |
 
-The full GCOV HDF5 product is about **1.46 GB** and requires a **NASA Earthdata
-Login**; an unauthenticated `GET` returns HTTP 401. The public ASF `LATLON`
-browse PNG and KML are small and geocoded in EPSG:4326, so the demo uses those
-for the overlays. The KML LatLonQuad bounds are
-`34.046214352344066, 9.348294259697461` to
-`37.15910942648043, 12.353227654962005`.
+The full GCOV HDF5 products are about **1.98 GB** and **1.54 GB** and require a
+**NASA Earthdata Login**; an unauthenticated `GET` returns HTTP 401. Set
+`EARTHDATA_TOKEN` in `.env`, then download and process with:
 
-`scripts/ingest_nisar_browse.py` downloads the browse PNG/KML, crops it to the
-GERD window, applies an Otsu threshold, and writes an RGBA overlay. It also
-prints the approximate low-backscatter area. Those values are **not calibrated
-water masks** and should not be treated as directly comparable to the
-Sentinel-1 estimates.
+```powershell
+.\.venv\Scripts\python.exe scripts\ingest_nisar_gcov.py --download
+.\.venv\Scripts\python.exe scripts\ingest_nisar_gcov.py --inspect
+.\.venv\Scripts\python.exe scripts\ingest_nisar_gcov.py --process
+```
+
+Processing uses frequency-A `HHHH` RTC-calibrated gamma0 linear power on a 20 m
+UTM grid, converts to dB with `10*log10(HHHH)`, crops to the GERD window, and
+applies one common Otsu threshold across both dates (`-14.053 dB`). The resulting
+HH water masks are **936.6** and **958.5 km²**. Persistent water is **881.9 km²**,
+with **54.7 km² lost** and **76.7 km² new**, a net change of **+21.9 km²** and a
+Jaccard overlap of **0.870**. These are calibrated threshold-based estimates, not
+independently validated water products. The previous public-browse overlays
+remain in `data/overlays/nisar_*.png` as a fallback.
 
 ---
 
@@ -248,10 +254,9 @@ Run it with:
 .\.venv\Scripts\python.exe clean.py
 ```
 
-`clean.py` needs `rasterio`, `numpy`, and `pillow`; the NISAR browse script
-needs `numpy` and `pillow`. `rasterio` and `h5py` are only needed for full
-Sentinel-1 or NISAR data processing, not for serving the committed demo
-overlays.
+`clean.py` needs `rasterio`, `numpy`, and `pillow`; the NISAR GCOV script needs
+`numpy`, `h5py`, `rasterio`, and `pillow`. Those packages are only needed for
+data processing and regeneration, not for serving the committed demo overlays.
 
 ### Why the PNGs have no coordinates inside them
 
@@ -270,8 +275,9 @@ This keeps the data pipeline simple and makes the same PNG usable in MapLibre,
 CesiumJS, Leaflet, or a plain `<img>` preview.
 
 The four Sentinel-1 PNGs are about 5.4–7.9 MB each and 2048 × 2048 RGBA. The
-NISAR browse overlays are about 0.7 MB each and 1024 × 1024 RGBA. All are served
-at `/static/overlays/<filename>`.
+calibrated NISAR dB overlays are about 1.3 MB each and 1024 × 1024 RGBA; the
+transparent water masks are about 60–70 KB each. All are served at
+`/static/overlays/<filename>`.
 
 ---
 
@@ -285,13 +291,14 @@ The API timeline is defined in `app/services/gerd_data.py`:
 | `gerd_2021` | 2021 | First Filling Phase | 2021-11-08 | Sentinel-1 C-band VV | 363 km² | `/static/overlays/gerd_2021_fill2.png` |
 | `gerd_2023` | 2023 | Fourth Filling Phase | 2023-11-02 | Sentinel-1 C-band VV | 1100 km² | `/static/overlays/gerd_2023_fill4.png` |
 | `gerd_2025` | 2025 | Full Reservoir Capacity | 2025-11-10 | Sentinel-1 C-band VV | 1874 km² | `/static/overlays/gerd_2025_full.png` |
-| `gerd_2026_10_25` | 2026 | NISAR L-Band Baseline | 2026-10-25 | NISAR L-band HH/HV | 1110 km²* | `/static/overlays/nisar_2026_10_25.png` |
-| `gerd_2026_11_06` | 2026 | NISAR 12-Day Repeat | 2026-11-06 | NISAR L-band HH | 1043 km²* | `/static/overlays/nisar_2026_11_06.png` |
+| `gerd_2026_10_25` | 2026 | NISAR L-Band Baseline | 2026-10-25 | NISAR L-band HH GCOV | 936.6 km²* | `/static/overlays/nisar_2026_10_25_gcov.png` |
+| `gerd_2026_11_06` | 2026 | NISAR 12-Day Repeat | 2026-11-06 | NISAR L-band HH GCOV | 958.5 km²* | `/static/overlays/nisar_2026_11_06_gcov.png` |
 
 The four Sentinel-1 source rasters are IW GRD VV products. The NISAR rows use
-public GCOV browse imagery. `*` marks a browse-derived low-backscatter estimate,
-not a calibrated water mask. The display dates are the curated timeline dates;
-the original product metadata is retained in the raw files and knowledge base.
+full L2 GCOV HDF5 frequency-A HH gamma0. `*` marks a calibrated threshold-based
+water estimate, not an independently validated water product. The display dates
+are the curated timeline dates; the original product metadata is retained in the
+manifest and knowledge base.
 
 ---
 
@@ -307,7 +314,7 @@ Ethio_SARs/
 │  │  ├─ sar.py               Timeline, single scene, live ASF search
 │  │  └─ ai.py                Gemini/RAG analysis and status
 │  └─ services/
-│     ├─ gerd_data.py         Curated GERD catalog, bounds, center
+│     ├─ gerd_data.py         Curated GERD catalog, bounds, calibrated NISAR data
 │     ├─ asf_client.py        NASA ASF search wrapper and normalizer
 │     └─ rag_engine.py        Chunking, embeddings, retrieval, Gemini calls
 ├─ data/
@@ -315,20 +322,27 @@ Ethio_SARs/
 │  │  ├─ sar_physics_guide.md
 │  │  ├─ gerd_hydrology_timeline.md
 │  │  └─ nisar_gerd_timeline.md
+│  ├─ nisar_gcov_manifest.json  Calibrated NISAR masks, areas, change stats
 │  └─ overlays/
 │     ├─ gerd_2019_pre.png
 │     ├─ gerd_2021_fill2.png
 │     ├─ gerd_2023_fill4.png
 │     ├─ gerd_2025_full.png
-│     ├─ nisar_2026_10_25.png
-│     └─ nisar_2026_11_06.png
+│     ├─ nisar_2026_10_25_gcov.png
+│     ├─ nisar_2026_10_25_water.png
+│     ├─ nisar_2026_11_06_gcov.png
+│     ├─ nisar_2026_11_06_water.png
+│     ├─ nisar_2026_10_25.png  Legacy public-browse fallback
+│     └─ nisar_2026_11_06.png  Legacy public-browse fallback
 ├─ frontend/
 │  └─ index.html              Single-page MapLibre mission console
 ├─ raw_tiffs/                 Original Sentinel-1 GeoTIFFs (gitignored)
-│  └─ nisar_browse/           Public NISAR browse PNG/KML cache (gitignored)
+│  ├─ nisar_browse/           Public NISAR browse PNG/KML cache (gitignored)
+│  └─ nisar_gcov/             Full NISAR GCOV HDF5 cache (gitignored)
 ├─ scripts/
 │  ├─ generate_mock_overlays.py
-│  └─ ingest_nisar_browse.py  NISAR browse → GERD RGBA overlay
+│  ├─ ingest_nisar_browse.py  Public NISAR browse → RGBA fallback overlay
+│  └─ ingest_nisar_gcov.py    Download/inspect/process calibrated NISAR GCOV
 ├─ clean.py                   Sentinel-1 GeoTIFF → map PNG converter
 ├─ requirements.txt
 ├─ LICENSE
@@ -359,8 +373,8 @@ Copy-Item .env.example .env
 # Edit .env and set GEMINI_API_KEY
 ```
 
-All six overlay PNGs are already committed, so you do **not** need the raw
-GeoTIFFs or NISAR browse cache to run the demo.
+All eight overlay PNGs are already committed, so you do **not** need the raw
+GeoTIFFs or NISAR GCOV cache to run the demo.
 
 ### Run
 
@@ -458,15 +472,18 @@ Response shape:
       "year": 2026,
       "date": "2026-11-06",
       "label": "NISAR 12-Day Repeat",
-      "sensor": "NISAR L-Band SAR (HH Polarization)",
+      "sensor": "NISAR L-Band SAR (HH GCOV)",
       "platform": "NISAR",
       "frequency_band": "L-band",
       "polarization": "HH",
       "product_type": "GCOV",
-      "overlay_url": "/static/overlays/nisar_2026_11_06.png",
-      "water_area_sq_km": 1043.2,
-      "area_note": "Approximate browse-derived low-backscatter estimate ...",
-      "backscatter_summary": "NISAR L-band browse image ...",
+      "data_source": "NISAR L2 GCOV HDF5 frequency-A HHHH gamma0",
+      "overlay_url": "/static/overlays/nisar_2026_11_06_gcov.png",
+      "water_mask_url": "/static/overlays/nisar_2026_11_06_water.png",
+      "water_area_sq_km": 958.5,
+      "threshold_db": -14.053,
+      "area_note": "Calibrated GCOV HH threshold-based estimate ...",
+      "backscatter_summary": "Calibrated NISAR L-band HH ...",
       "bounds": {"west": 34.85, "south": 10.85, "east": 35.45, "north": 11.45}
     }
   ]
@@ -541,8 +558,8 @@ Three Markdown documents are loaded at startup:
   scattering, double-bounce, and how to read change between dates.
 - `data/knowledge_base/gerd_hydrology_timeline.md` — GERD location, reservoir
   scale, filling milestones, and downstream context.
-- `data/knowledge_base/nisar_gerd_timeline.md` — NISAR L-band products, browse
-  access, cross-sensor caveats, and approximate GERD water areas.
+- `data/knowledge_base/nisar_gerd_timeline.md` — NISAR L-band products, full GCOV
+  processing, calibrated threshold-based water areas, and 12-day change stats.
 
 The documents are chunked by headings and paragraphs into roughly a dozen chunks
 of about 900 characters.
@@ -610,8 +627,10 @@ the frontend can show exactly what happened.
 - **Reset** restores the GERD view.
 - The AI panel has independent **Before** and **After** selectors, plus
   **S-1 first ↔ last** and **NISAR 12-day** presets.
-- Scene cards show platform/band badges; NISAR cards mark browse-derived water
+- Scene cards show platform/band badges; NISAR cards show calibrated GCOV water
   areas with `*` and an explanatory tooltip.
+- The **Calibrated NISAR Change** panel reports the 12-day net change, persistent
+  water, lost/new water, Jaccard overlap, and threshold.
 - The ASF panel searches any latitude/longitude and date range, shows browse
   thumbnails, and can zoom the map to a result footprint.
 
@@ -656,16 +675,32 @@ still works.
 
 ### Regenerating the NISAR overlays
 
-The NISAR browse pipeline is standalone:
+The calibrated NISAR GCOV pipeline is standalone:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\ingest_nisar_gcov.py --download
+.\.venv\Scripts\python.exe scripts\ingest_nisar_gcov.py --inspect
+.\.venv\Scripts\python.exe scripts\ingest_nisar_gcov.py --process
+```
+
+It downloads the two full frequency-A GCOV HDF5 products into
+`raw_tiffs/nisar_gcov/`, reads the `HHHH` gamma0 crop over GERD, computes a
+common Otsu threshold, writes `nisar_*_gcov.png` and `nisar_*_water.png`, and
+updates `data/nisar_gcov_manifest.json`. Restart the app after regenerating so
+the manifest values are reapplied to the timeline. To add another NISAR
+acquisition, add its date and product ID to `PRODUCTS` in the script, then add
+the scene metadata to `gerd_data.py`.
+
+The public-browse fallback is still available:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\ingest_nisar_browse.py --force
 ```
 
 It downloads the public `LATLON.png` and `.kml` files into
-`raw_tiffs/nisar_browse/`, crops to the GERD bounds, and rewrites the two NISAR
-overlays. To add another NISAR acquisition, add its date and product ID to
-`PRODUCTS` in the script, then add the scene metadata to `gerd_data.py`.
+`raw_tiffs/nisar_browse/`, crops to the GERD bounds, and rewrites the two legacy
+NISAR overlays. Those values are approximate and are not used by the app unless
+the calibrated manifest is removed.
 
 ---
 
@@ -738,9 +773,10 @@ let the demo run; download the TIFFs only if you want to regenerate overlays.
 
 ### NISAR full product returns HTTP 401
 
-The full GCOV HDF5 product requires a NASA Earthdata Login. The public browse
-PNG/KML does not. Run `scripts/ingest_nisar_browse.py` for the demo overlays, or
-configure Earthdata credentials for full-resolution ingestion.
+The full GCOV HDF5 products require a NASA Earthdata Login. Set
+`EARTHDATA_TOKEN` in `.env` and run `scripts/ingest_nisar_gcov.py --download`.
+The public browse PNG/KML remains available through
+`scripts/ingest_nisar_browse.py` if full-product access is unavailable.
 
 ---
 
@@ -749,9 +785,11 @@ configure Earthdata credentials for full-resolution ingestion.
 ### What is real
 
 - Four real Sentinel-1A IW GRD HR L1 VV scenes.
-- Two real NISAR L-band GCOV browse scenes from 2026.
+- Two real NISAR L-band GCOV HDF5 scenes from 2026, processed from the
+  frequency-A `HHHH` RTC-calibrated gamma0 layer.
 - Real GCP-based reprojection and contrast stretching in `clean.py`, and real
-  KML-based cropping plus Otsu thresholding for the NISAR browse overlays.
+  20 m GCOV cropping, dB conversion, masking, and common Otsu thresholding for
+  the NISAR calibrated outputs.
 - Live NASA ASF metadata search across Sentinel-1 and NISAR.
 - Real Gemini + embedding calls when an API key is configured.
 
@@ -759,9 +797,11 @@ configure Earthdata credentials for full-resolution ingestion.
 
 - The Sentinel-1 water-area values (`48.2`, `363`, `1100`, `1874` km²) are
   curated narrative estimates, not live measurements from the rasters.
-- The NISAR values (`1110.2`, `1043.2` km²) are Otsu low-backscatter estimates
-  from public browse PNGs. They are not calibrated water masks and are not
+- The NISAR values (`936.6`, `958.5` km²) are calibrated GCOV HH threshold-based
+  estimates. They are not independently validated water products and are not
   directly comparable to the Sentinel-1 estimates.
+- The NISAR 12-day change (`+21.9 km²` net, Jaccard `0.870`) is threshold- and
+  speckle-sensitive; treat small changes as indicative.
 - The backscatter summaries describe the visual pattern of each scene; they are
   not calibrated geophysical products.
 - The 3D terrain is a visualization layer, not a hydraulic or bathymetric
@@ -785,8 +825,9 @@ accessed through NASA's Alaska Satellite Facility (ASF). Sentinel-1 is a
 Copernicus programme mission.
 
 NISAR data are from the NASA-ISRO Synthetic Aperture Radar mission, accessed
-through NASA's Alaska Satellite Facility (ASF). The app uses public NISAR GCOV
-browse imagery; full GCOV products require a NASA Earthdata Login.
+through NASA's Alaska Satellite Facility (ASF). The app processes full GCOV HDF5
+products downloaded with a NASA Earthdata Login; full GCOV products require
+Earthdata credentials.
 
 ### Software and map attribution
 

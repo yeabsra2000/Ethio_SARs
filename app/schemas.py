@@ -33,8 +33,11 @@ class GerdScene(BaseModel):
     frequency_band: str | None = None
     polarization: str | None = None
     product_type: str | None = None
+    data_source: str | None = None
     overlay_url: str
+    water_mask_url: str | None = None
     water_area_sq_km: float
+    threshold_db: float | None = None
     area_note: str | None = None
     backscatter_summary: str
     bounds: Bounds
@@ -47,6 +50,23 @@ class GerdTimelineResponse(BaseModel):
     center: Center
     bounds: Bounds
     scenes: list[GerdScene]
+
+
+class NisarChangeResponse(BaseModel):
+    """Calibrated NISAR GCOV water extent and 12-day change statistics."""
+
+    before: GerdScene
+    after: GerdScene
+    threshold_db: float
+    persistent_sq_km: float
+    lost_sq_km: float
+    new_sq_km: float
+    net_change_sq_km: float
+    union_sq_km: float
+    jaccard: float | None = None
+    method: str
+    generated_at: str | None = None
+    caveats: list[str] = Field(default_factory=list)
 
 
 class LiveSarSearchRequest(BaseModel):

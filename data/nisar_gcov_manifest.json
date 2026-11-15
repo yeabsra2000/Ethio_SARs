@@ -1,0 +1,123 @@
+{
+  "generated_at": "2026-11-15T07:41:58.325350+00:00",
+  "mission": "NISAR",
+  "method": "Frequency-A HHHH gamma0 linear power converted to dB, cropped to the GERD window in EPSG:32636, common Otsu threshold across both dates, valid GCOV mask (0 < mask < 255), 20 m pixel area.",
+  "bounds_wgs84": {
+    "west": 34.85,
+    "south": 10.85,
+    "east": 35.45,
+    "north": 11.45
+  },
+  "threshold_db": -14.053,
+  "pixel_size_m": 20.0,
+  "pixel_area_m2": 400.0,
+  "scenes": [
+    {
+      "date": "2026-10-25",
+      "product_id": "NISAR_L2_PR_GCOV_034_021_D_083_2005_DHDH_A_20261025T160621_20261025T160656_P05036_N_F_J_001",
+      "platform": "NISAR",
+      "instrument": "NISAR L-band SAR",
+      "frequency_band": "L-band",
+      "center_frequency_hz": 1229000000.0,
+      "polarization": "HH",
+      "available_polarizations": [
+        "HH",
+        "HV"
+      ],
+      "product_type": "GCOV",
+      "processing_level": "L2",
+      "grid": "science/LSAR/GCOV/grids/frequencyA",
+      "resolution_m": 20.0,
+      "data_source": "NISAR L2 GCOV HDF5 frequency-A HHHH gamma0",
+      "calibration": "RTC-calibrated gamma0 linear power; dB = 10*log10(HHHH)",
+      "water_area_sq_km": 936.6,
+      "valid_area_sq_km": 4416.73,
+      "water_fraction": 0.212058,
+      "water_pixels": 2341508,
+      "valid_pixels": 11041834,
+      "threshold_db": -14.053,
+      "overlay_url": "/static/overlays/nisar_2026_10_25_gcov.png",
+      "water_mask_url": "/static/overlays/nisar_2026_10_25_water.png",
+      "hdf5_file": "NISAR_L2_PR_GCOV_034_021_D_083_2005_DHDH_A_20261025T160621_20261025T160656_P05036_N_F_J_001.h5",
+      "hdf5_bytes": 1975517184,
+      "window": {
+        "x0": 4347,
+        "x1": 7649,
+        "y0": 4948,
+        "y1": 8292,
+        "shape": [
+          3344,
+          3302
+        ]
+      },
+      "utm_bounds": {
+        "west": 701820.8892926027,
+        "south": 1200008.6923898528,
+        "east": 767858.189091632,
+        "north": 1266871.928863383
+      }
+    },
+    {
+      "date": "2026-11-06",
+      "product_id": "NISAR_L2_PR_GCOV_035_021_D_083_2005_SHSH_A_20261106T160622_20261106T160656_P05036_N_F_J_001",
+      "platform": "NISAR",
+      "instrument": "NISAR L-band SAR",
+      "frequency_band": "L-band",
+      "center_frequency_hz": 1229000000.0,
+      "polarization": "HH",
+      "available_polarizations": [
+        "HH"
+      ],
+      "product_type": "GCOV",
+      "processing_level": "L2",
+      "grid": "science/LSAR/GCOV/grids/frequencyA",
+      "resolution_m": 20.0,
+      "data_source": "NISAR L2 GCOV HDF5 frequency-A HHHH gamma0",
+      "calibration": "RTC-calibrated gamma0 linear power; dB = 10*log10(HHHH)",
+      "water_area_sq_km": 958.55,
+      "valid_area_sq_km": 4416.73,
+      "water_fraction": 0.217026,
+      "water_pixels": 2396369,
+      "valid_pixels": 11041830,
+      "threshold_db": -14.053,
+      "overlay_url": "/static/overlays/nisar_2026_11_06_gcov.png",
+      "water_mask_url": "/static/overlays/nisar_2026_11_06_water.png",
+      "hdf5_file": "NISAR_L2_PR_GCOV_035_021_D_083_2005_SHSH_A_20261106T160622_20261106T160656_P05036_N_F_J_001.h5",
+      "hdf5_bytes": 1535115264,
+      "window": {
+        "x0": 4347,
+        "x1": 7649,
+        "y0": 4948,
+        "y1": 8292,
+        "shape": [
+          3344,
+          3302
+        ]
+      },
+      "utm_bounds": {
+        "west": 701820.8892926027,
+        "south": 1200008.6923898528,
+        "east": 767858.189091632,
+        "north": 1266871.928863383
+      }
+    }
+  ],
+  "change": {
+    "before": "2026-10-25",
+    "after": "2026-11-06",
+    "threshold_db": -14.053,
+    "pixel_area_m2": 400.0,
+    "persistent_sq_km": 881.87,
+    "lost_sq_km": 54.74,
+    "new_sq_km": 76.68,
+    "net_change_sq_km": 21.94,
+    "union_sq_km": 1013.28,
+    "jaccard": 0.870307
+  },
+  "caveats": [
+    "Threshold-based HH water mask, not an independently validated product.",
+    "L-band HH is not directly comparable to Sentinel-1 C-band VV.",
+    "The two NISAR dates are 12 days apart; small changes may be noise.",
+    "Noise correction was not applied by the NISAR processor."
+  ]
+}
