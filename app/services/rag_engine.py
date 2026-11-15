@@ -1,7 +1,7 @@
 """Gemini + local vector-store RAG pipeline.
 
 The knowledge base is chunked at startup and embedded with Google's
-``text-embedding-004`` model when a Gemini API key is configured. Vectors are
+``gemini-embedding-001`` model when a Gemini API key is configured. Vectors are
 kept in memory (numpy) so no external vector database is required. When the API
 key is absent or embeddings are unavailable, the engine transparently falls back
 to a lightweight lexical retriever so the demo still answers out of the box.
@@ -34,10 +34,13 @@ except Exception:  # noqa: BLE001
 
 SYSTEM_PROMPT = (
     "You are a synthetic aperture radar (SAR) analyst explaining Sentinel-1 "
-    "imagery of the Grand Ethiopian Renaissance Dam (GERD / Lake Nigat) to a "
-    "non-expert audience. Answer the user's specific question directly and "
-    "concisely. Use the supplied scene metadata, computed water-area changes, "
-    "and retrieved knowledge-base facts. Do not invent measurements. Use radar "
+    "C-band and NISAR L-band imagery of the Grand Ethiopian Renaissance Dam "
+    "(GERD / Lake Nigat) to a non-expert audience. Answer the user's specific "
+    "question directly and concisely. Use the supplied scene metadata, computed "
+    "water-area changes, and retrieved knowledge-base facts. Do not invent "
+    "measurements. Treat NISAR water areas as approximate browse-derived "
+    "estimates, not calibrated measurements, and do not present a Sentinel-1 "
+    "vs NISAR area change as a like-for-like sensor comparison. Use radar "
     "physics only when it helps answer the question; do not default to a "
     "generic SAR tutorial. If the user greets you, reply in one short sentence "
     "and suggest a concrete GERD/SAR question. If the question is unrelated to "
@@ -47,6 +50,9 @@ SYSTEM_PROMPT = (
     "'key_takeaways' (array of 2-4 strings that directly answer the question), "
     "and 'citations' (array of source filenames actually used)."
 )
+
+SENTINEL_SCENES = [scene for scene in SCENES if scene.platform == "Sentinel-1"]
+NISAR_SCENES = [scene for scene in SCENES if scene.platform == "NISAR"]
 
 _STOPWORDS = {
     "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "is", "are",
@@ -360,15 +366,30 @@ class RAGEngine:
             lines.append(
                 f"{role} scene: {scene.id} | {scene.date.isoformat()} | "
                 f"{scene.label} | sensor: {scene.sensor} | "
-                f"water area: {scene.water_area_sq_km} sq km | "
-                f"backscatter: {scene.backscatter_summary}"
+                f"platform: {scene.platform or 'n/a'} | "
+                f"band: {scene.frequency_band or 'n/a'} | "
+                f"polarization: {scene.polarization or 'n/a'} | "
+                f"product: {scene.product_type or 'n/a'} | "
+                f"water area: {scene.water_area_sq_km} sq km"
+                + (f" | area note: {scene.area_note}" if scene.area_note else "")
+                + f" | backscatter: {scene.backscatter_summary}"
             )
 
         lines.append("Curated timeline for all years:")
         for scene in SCENES:
             lines.append(
                 f"- {scene.id} | {scene.date.isoformat()} | {scene.label} | "
+                f"{scene.platform or 'platform n/a'} {scene.frequency_band or ''} | "
                 f"water area: {scene.water_area_sq_km} sq km"
+            )
+
+        if SENTINEL_SCENES and NISAR_SCENES:
+            lines.append(
+                "Sensor note: Sentinel-1 is C-band VV; NISAR is L-band HH/HV. "
+                "The NISAR overlays come from public browse PNGs because the full "
+                "GCOV HDF5 products require a NASA Earthdata Login. NISAR water "
+                "areas are Otsu low-backscatter estimates, not calibrated masks, "
+                "so compare them qualitatively with the Sentinel-1 timeline."
             )
 
         if len(SCENES) > 1:
@@ -438,15 +459,19 @@ class RAGEngine:
                     for previous, current in zip(SCENES, SCENES[1:])
                 ]
                 largest = max(intervals, key=lambda item: item[0])
+                sentinel_first = SENTINEL_SCENES[0] if SENTINEL_SCENES else SCENES[0]
+                sentinel_last = SENTINEL_SCENES[-1] if SENTINEL_SCENES else SCENES[-1]
                 explanation = (
                     f"The largest mapped water-area increase between consecutive "
                     f"curated scenes is from {largest[1].date.isoformat()} to "
                     f"{largest[2].date.isoformat()}: "
-                    f"+{largest[0]:,.1f} sq km. Across the full timeline, surface "
-                    f"water grows from {SCENES[0].water_area_sq_km:,} sq km to "
-                    f"{SCENES[-1].water_area_sq_km:,} sq km, an overall increase "
-                    f"of {SCENES[-1].water_area_sq_km - SCENES[0].water_area_sq_km:,.1f} "
-                    f"sq km."
+                    f"+{largest[0]:,.1f} sq km. Across the Sentinel-1 timeline, "
+                    f"surface water grows from {sentinel_first.water_area_sq_km:,} "
+                    f"sq km to {sentinel_last.water_area_sq_km:,} sq km, an overall "
+                    f"increase of "
+                    f"{sentinel_last.water_area_sq_km - sentinel_first.water_area_sq_km:,.1f} "
+                    f"sq km. The later NISAR L-band scenes are an approximate "
+                    f"cross-sensor check, not part of that Sentinel-1 total."
                 )
                 takeaways = [
                     f"Largest interval gain: +{largest[0]:,.1f} sq km "
@@ -458,17 +483,69 @@ class RAGEngine:
                 token in lower
                 for token in ("capacity", "water volume", "hold", "cubic", "km3", "km³")
             ):
+                sentinel_first = SENTINEL_SCENES[0] if SENTINEL_SCENES else SCENES[0]
+                sentinel_last = SENTINEL_SCENES[-1] if SENTINEL_SCENES else SCENES[-1]
                 explanation = (
                     "At full supply level the GERD reservoir is designed to hold "
                     "roughly 74 billion cubic metres (74 km³) of water, with a "
-                    "surface area of about 1,874 sq km. The curated SAR timeline "
-                    "shows the surface-water signal expanding from "
-                    f"{SCENES[0].water_area_sq_km:,} sq km in {SCENES[0].year} to "
-                    f"{SCENES[-1].water_area_sq_km:,} sq km in {SCENES[-1].year}."
+                    "surface area of about 1,874 sq km. The curated Sentinel-1 "
+                    "timeline shows the surface-water signal expanding from "
+                    f"{sentinel_first.water_area_sq_km:,} sq km in "
+                    f"{sentinel_first.year} to "
+                    f"{sentinel_last.water_area_sq_km:,} sq km in "
+                    f"{sentinel_last.year}."
                 )
                 takeaways = [
                     "Design storage at full supply level: about 74 km³.",
                     "Full-supply surface area: about 1,874 sq km.",
+                ]
+            elif any(
+                token in lower
+                for token in ("nisar", "l-band", "l band", "lband")
+            ):
+                nisar_dates = ", ".join(
+                    scene.date.isoformat() for scene in NISAR_SCENES
+                )
+                nisar_areas = ", ".join(
+                    f"{scene.water_area_sq_km:,.0f} sq km" for scene in NISAR_SCENES
+                )
+                explanation = (
+                    "NISAR is the NASA-ISRO L-band SAR mission, and its longer "
+                    "wavelength penetrates vegetation and responds to soil "
+                    "moisture and biomass more than Sentinel-1 C-band. The GERD "
+                    "timeline includes NISAR GCOV scenes from "
+                    f"{nisar_dates}, acquired on the same track about 12 days "
+                    "apart. The app uses the public NISAR browse images because "
+                    "the full GCOV HDF5 products need a NASA Earthdata Login; the "
+                    "browse-derived low-backscatter areas are about "
+                    f"{nisar_areas}, but they are approximate and not calibrated "
+                    "water masks."
+                )
+                takeaways = [
+                    "NISAR adds L-band HH/HV observations to the C-band Sentinel-1 timeline.",
+                    "The two NISAR scenes are a 12-day repeat over the same GERD track.",
+                    "NISAR browse-derived areas are approximate, not like-for-like water measurements.",
+                ]
+            elif any(
+                token in lower
+                for token in ("sentinel-1", "sentinel 1", "c-band", "c band")
+            ):
+                sentinel_first = SENTINEL_SCENES[0] if SENTINEL_SCENES else SCENES[0]
+                sentinel_last = SENTINEL_SCENES[-1] if SENTINEL_SCENES else SCENES[-1]
+                explanation = (
+                    "Sentinel-1 is ESA's C-band SAR mission, and the curated "
+                    "timeline uses VV-polarized GRD scenes to track the reservoir "
+                    f"from {sentinel_first.date.isoformat()} to "
+                    f"{sentinel_last.date.isoformat()}. The mapped surface-water "
+                    f"area grows from {sentinel_first.water_area_sq_km:,} sq km to "
+                    f"{sentinel_last.water_area_sq_km:,} sq km over that period. "
+                    "The newer NISAR L-band scenes are a complementary check, not "
+                    "a direct replacement for the C-band series."
+                )
+                takeaways = [
+                    "Sentinel-1 C-band VV provides the long 2019-2025 GERD record.",
+                    "The reservoir's dark specular signature expands as it fills.",
+                    "NISAR L-band adds a complementary longer-wavelength view.",
                 ]
             elif any(
                 token in lower
@@ -535,6 +612,18 @@ class RAGEngine:
                     "Bright edges trace steep banks, vegetation, and dam "
                     "infrastructure.",
                 ]
+                if (
+                    before.platform
+                    and after.platform
+                    and before.platform != after.platform
+                ):
+                    explanation += (
+                        " This comparison crosses sensors "
+                        f"({before.platform} {before.frequency_band or ''} vs "
+                        f"{after.platform} {after.frequency_band or ''}), so treat "
+                        "the area difference as an indicative visual comparison "
+                        "rather than a calibrated like-for-like measurement."
+                    )
         else:
             explanation = (
                 "The selected scenes are not both in the curated GERD catalog. "
@@ -559,6 +648,13 @@ class RAGEngine:
                 "specular",
                 "volume scattering",
                 "look dark",
+                "nisar",
+                "l-band",
+                "l band",
+                "sentinel-1",
+                "sentinel 1",
+                "c-band",
+                "c band",
             )
         ):
             explanation += (

@@ -7,3 +7,5 @@ google-genai>=1.0.0
 numpy>=1.26.0
 asf-search>=8.0.0
 pillow>=10.4.0
+rasterio>=1.4.0
+h5py>=3.11.0

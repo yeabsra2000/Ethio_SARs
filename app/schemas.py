@@ -29,8 +29,13 @@ class GerdScene(BaseModel):
     date: date
     label: str
     sensor: str
+    platform: str | None = None
+    frequency_band: str | None = None
+    polarization: str | None = None
+    product_type: str | None = None
     overlay_url: str
     water_area_sq_km: float
+    area_note: str | None = None
     backscatter_summary: str
     bounds: Bounds
 
@@ -68,7 +73,9 @@ class LiveSarScene(BaseModel):
     scene_id: str
     acquisition_time: str | None = None
     platform: str | None = None
+    frequency_band: str | None = None
     polarization: str | None = None
+    processing_level: str | None = None
     browse_url: str | None = None
     download_url: str | None = None
     bounds: Bounds | None = None

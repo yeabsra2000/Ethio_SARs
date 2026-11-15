@@ -110,6 +110,15 @@
       background: rgba(47, 211, 255, 0.16); color: var(--accent);
       font-size: 9px; font-weight: 700; margin-left: 5px;
     }
+    .sensor-badge {
+      display: inline-block; margin-left: 5px; padding: 1px 5px; border-radius: 999px;
+      border: 1px solid rgba(47, 211, 255, 0.3); background: rgba(47, 211, 255, 0.1);
+      color: var(--accent); font-size: 8.5px; font-weight: 700; vertical-align: 1px;
+    }
+    .sensor-badge.nisar {
+      border-color: rgba(255, 196, 84, 0.35); background: rgba(255, 196, 84, 0.12);
+      color: #ffce73;
+    }
     .btn {
       appearance: none; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
       border-radius: 8px; padding: 8px 11px; cursor: pointer; font-size: 11.5px; font-weight: 600;
@@ -261,7 +270,10 @@
       <section>
         <div class="section-head">
           <h2>AI comparison pair</h2>
-          <button class="btn tiny" id="pair-first-last" type="button">First ↔ Last</button>
+          <div class="section-actions">
+            <button class="btn tiny" id="pair-first-last" type="button">S-1 first ↔ last</button>
+            <button class="btn tiny" id="pair-nisar" type="button">NISAR 12-day</button>
+          </div>
         </div>
         <div class="form-grid">
           <div>
@@ -273,7 +285,7 @@
             <select id="after-select"></select>
           </div>
         </div>
-        <div class="tiny muted" style="margin-top:7px">The AI can compare any two scenes, even if more are selected.</div>
+        <div class="tiny muted" style="margin-top:7px">The AI can compare any two scenes. NISAR comparisons are cross-sensor and use approximate browse-derived areas.</div>
       </section>
     </aside>
 
@@ -334,16 +346,16 @@
           <div class="form-grid">
             <div>
               <label class="field" for="start-date">Start date</label>
-              <input id="start-date" type="date" value="2024-01-01">
+              <input id="start-date" type="date" value="2026-10-01">
             </div>
             <div>
               <label class="field" for="end-date">End date</label>
-              <input id="end-date" type="date" value="2024-12-31">
+              <input id="end-date" type="date" value="2026-11-14">
             </div>
           </div>
           <div>
             <label class="field" for="max-results">Max results</label>
-            <input id="max-results" type="number" min="1" max="25" value="5">
+            <input id="max-results" type="number" min="1" max="25" value="10">
           </div>
           <button class="btn" type="submit" id="search-submit">Search Sentinel-1 / NISAR</button>
         </form>
@@ -701,14 +713,19 @@
           const badge = order.has(scene.id)
             ? `<span class="order-badge">${order.get(scene.id)}</span>`
             : "";
+          const sensorLabel = [scene.platform, scene.frequency_band].filter(Boolean).join(" · ");
+          const sensorBadge = sensorLabel
+            ? `<span class="sensor-badge${scene.platform === "NISAR" ? " nisar" : ""}">${esc(sensorLabel)}</span>`
+            : "";
+          const areaNote = scene.area_note ? ` title="${esc(scene.area_note)}"` : "";
           card.innerHTML = `
             <a href="${esc(scene.overlay_url)}" target="_blank" rel="noreferrer" title="Open full PNG">
               <img src="${esc(scene.overlay_url)}" alt="${esc(scene.label)} overlay" loading="lazy">
             </a>
             <div>
-              <div class="title">${esc(scene.year)} · ${esc(scene.label)}${badge}</div>
+              <div class="title">${esc(scene.year)} · ${esc(scene.label)}${sensorBadge}${badge}</div>
               <div class="meta">${esc(scene.date)} · ${esc(scene.sensor)}</div>
-              <div class="meta">Water ≈ ${Number(scene.water_area_sq_km).toLocaleString()} km²</div>
+              <div class="meta"${areaNote}>Water ≈ ${Number(scene.water_area_sq_km).toLocaleString()} km²${scene.area_note ? "*" : ""}</div>
             </div>
             <input class="scene-check" type="checkbox" data-id="${esc(scene.id)}" ${state.selected.has(scene.id) ? "checked" : ""} aria-label="Select ${esc(scene.year)}">`;
           list.appendChild(card);
@@ -731,7 +748,7 @@
           row.innerHTML = `
             <div class="layer-head">
               <span class="dot"></span>
-              <span class="layer-title">${esc(scene.year)} · ${esc(scene.label)}</span>
+              <span class="layer-title">${esc(scene.year)} · ${esc(scene.label)}${scene.platform ? ` · ${esc(scene.platform)}` : ""}</span>
               <span class="layer-val" id="op-${esc(scene.id)}">${value}%</span>
             </div>
             <div class="layer-body">
@@ -763,7 +780,7 @@
           state.after = options[options.length - 1].id;
         }
         const html = options.map((scene) =>
-          `<option value="${esc(scene.id)}">${esc(scene.year)} · ${esc(scene.label)}</option>`
+          `<option value="${esc(scene.id)}">${esc(scene.year)} · ${esc(scene.label)}${scene.platform ? ` · ${esc(scene.platform)}` : ""}</option>`
         ).join("");
         $("before-select").innerHTML = html;
         $("after-select").innerHTML = html;
@@ -811,8 +828,10 @@
           const timeline = await api("/api/sar/gerd/timeline");
           state.timeline = timeline;
           state.scenes = timeline.scenes;
-          const first = timeline.scenes[0];
-          const last = timeline.scenes[timeline.scenes.length - 1];
+          const sentinelScenes = timeline.scenes.filter((scene) => scene.platform === "Sentinel-1");
+          const defaultScenes = sentinelScenes.length ? sentinelScenes : timeline.scenes;
+          const first = defaultScenes[0];
+          const last = defaultScenes[defaultScenes.length - 1];
           state.selected = new Set();
           state.opacity = {};
           timeline.scenes.forEach((scene) => { state.opacity[scene.id] = 0; });
@@ -977,8 +996,8 @@
           const body = document.createElement("div");
           body.innerHTML = `
             <div class="id">${esc(scene.scene_id)}</div>
-            <div class="meta">${esc(scene.platform || "platform n/a")} · ${esc(scene.acquisition_time || "time n/a")}</div>
-            <div class="meta">Polarization: ${esc(scene.polarization || "n/a")}</div>
+            <div class="meta">${esc(scene.platform || "platform n/a")} · ${esc(scene.frequency_band || "band n/a")} · ${esc(scene.processing_level || "level n/a")}</div>
+            <div class="meta">${esc(scene.acquisition_time || "time n/a")} · Polarization: ${esc(scene.polarization || "n/a")}</div>
             ${scene.bounds ? `<div class="meta">Bounds: ${Number(scene.bounds.west).toFixed(3)}, ${Number(scene.bounds.south).toFixed(3)} → ${Number(scene.bounds.east).toFixed(3)}, ${Number(scene.bounds.north).toFixed(3)}</div>` : ""}`;
           if (scene.bounds) {
             const zoom = document.createElement("button");
@@ -1063,12 +1082,27 @@
           if (state.playback.active) startPlayback();
         });
         $("pair-first-last").addEventListener("click", () => {
-          const scenes = selectedScenes().length >= 2 ? selectedScenes() : state.scenes;
+          const selected = selectedScenes();
+          const sentinel = state.scenes.filter((scene) => scene.platform === "Sentinel-1");
+          const scenes = selected.length >= 2 ? selected : (sentinel.length ? sentinel : state.scenes);
           if (!scenes.length) return;
           state.before = scenes[0].id;
           state.after = scenes[scenes.length - 1].id;
           $("before-select").value = state.before;
           $("after-select").value = state.after;
+        });
+        $("pair-nisar").addEventListener("click", () => {
+          const nisar = state.scenes.filter((scene) => scene.platform === "NISAR");
+          if (nisar.length < 2) return;
+          state.before = nisar[0].id;
+          state.after = nisar[nisar.length - 1].id;
+          nisar.forEach((scene) => {
+            state.selected.add(scene.id);
+            if (state.opacity[scene.id] === undefined || state.opacity[scene.id] === 0) {
+              state.opacity[scene.id] = 0.55;
+            }
+          });
+          refreshSelectionUI();
         });
         $("before-select").addEventListener("change", (event) => { state.before = event.target.value; });
         $("after-select").addEventListener("change", (event) => { state.after = event.target.value; });

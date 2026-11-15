@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+import urllib.parse
+import urllib.request
 from datetime import date
 from typing import Any, Iterable
 
@@ -16,10 +20,11 @@ from app.schemas import (
 
 logger = logging.getLogger(__name__)
 
-try:  # pragma: no cover - import guard keeps the API bootable without the SDK
-    import asf_search
-except Exception:  # noqa: BLE001 - any import failure is non-fatal at boot
-    asf_search = None  # type: ignore[assignment]
+ASF_SEARCH_URL = "https://api.daac.asf.alaska.edu/services/search/param"
+ASF_QUERIES = (
+    {"platform": "Sentinel-1", "processingLevel": "GRD_HD"},
+    {"platform": "NISAR", "processingLevel": "GCOV"},
+)
 
 
 def _build_wkt(lat: float, lon: float, buffer_deg: float = 0.1) -> str:
@@ -33,22 +38,6 @@ def _build_wkt(lat: float, lon: float, buffer_deg: float = 0.1) -> str:
         f"POLYGON(({west} {south}, {east} {south}, {east} {north}, "
         f"{west} {north}, {west} {south}))"
     )
-
-
-def _platforms() -> list[Any]:
-    """Return the Sentinel-1 / NISAR platform selectors supported by the SDK."""
-
-    if asf_search is None:
-        return []
-    platform = getattr(asf_search, "PLATFORM", None)
-    if platform is None:
-        return ["Sentinel-1", "NISAR"]
-    selectors: list[Any] = []
-    for name in ("SENTINEL1", "NISAR"):
-        value = getattr(platform, name, None)
-        if value is not None:
-            selectors.append(value)
-    return selectors or ["Sentinel-1", "NISAR"]
 
 
 def _to_iso(value: date | str) -> str:
@@ -70,6 +59,26 @@ def _flatten_coords(value: Any) -> Iterable[tuple[float, float]]:
                 yield from _flatten_coords(item)
 
 
+def _parse_wkt_bounds(value: Any) -> Bounds | None:
+    """Extract a bounding box from an ASF WKT polygon string."""
+
+    if not isinstance(value, str):
+        return None
+    matches = re.findall(
+        r"(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)", value
+    )
+    if not matches:
+        return None
+    lons = [float(lon) for lon, _ in matches]
+    lats = [float(lat) for _, lat in matches]
+    return Bounds(
+        west=min(lons),
+        south=min(lats),
+        east=max(lons),
+        north=max(lats),
+    )
+
+
 def _extract_bounds(result: Any, properties: dict[str, Any]) -> Bounds | None:
     """Best-effort extraction of a bounding box from an ASF result."""
 
@@ -80,6 +89,14 @@ def _extract_bounds(result: Any, properties: dict[str, Any]) -> Bounds | None:
             return Bounds(west=west, south=south, east=east, north=north)
         except (TypeError, ValueError):
             pass
+
+    wkt_bounds = _parse_wkt_bounds(
+        properties.get("stringFootprint")
+        or properties.get("shape")
+        or (properties.get("geometry") if isinstance(properties.get("geometry"), str) else None)
+    )
+    if wkt_bounds is not None:
+        return wkt_bounds
 
     geometry = getattr(result, "geometry", None)
     if geometry is None:
@@ -131,27 +148,64 @@ def _first(value: Any) -> Any:
     return value
 
 
-def _normalize_result(result: Any) -> LiveSarScene:
-    properties: dict[str, Any] = dict(getattr(result, "properties", {}) or {})
-    bounds = _extract_bounds(result, properties)
+def _infer_polarization(properties: dict[str, Any], scene_id: str) -> str | None:
     polarization = _first(
         properties.get("polarization") or properties.get("polarizations")
+    )
+    if polarization:
+        return str(polarization)
+    if "_SHSH_" in scene_id:
+        return "HH"
+    if "_DHDH_" in scene_id:
+        return "HH/HV"
+    if "_SHSV_" in scene_id:
+        return "HV"
+    return None
+
+
+def _infer_frequency_band(properties: dict[str, Any]) -> str | None:
+    band = _first(properties.get("frequencyBand"))
+    if band:
+        return str(band)
+    platform = str(properties.get("platform") or "").upper()
+    sensor = str(properties.get("sensor") or "").upper()
+    if "NISAR" in platform or "L-SAR" in sensor:
+        return "L-band"
+    if "SENTINEL-1" in platform or "C-SAR" in sensor:
+        return "C-band"
+    return None
+
+
+def _normalize_result(result: Any) -> LiveSarScene:
+    raw_properties = getattr(result, "properties", None)
+    if isinstance(raw_properties, dict):
+        properties: dict[str, Any] = dict(raw_properties)
+    elif isinstance(result, dict):
+        properties = dict(result.get("properties") or result)
+    else:
+        properties = {}
+
+    bounds = _extract_bounds(result, properties)
+    scene_id = str(
+        _first(properties.get("sceneName"))
+        or _first(properties.get("granuleName"))
+        or _first(properties.get("productName"))
+        or _first(properties.get("sceneId"))
+        or _first(properties.get("fileName"))
+        or "unknown"
     )
     browse = _first(properties.get("browse") or properties.get("browse_url"))
     download = _first(properties.get("downloadUrl") or properties.get("url"))
 
     return LiveSarScene(
-        scene_id=str(
-            _first(properties.get("sceneName"))
-            or _first(properties.get("fileID"))
-            or _first(properties.get("sceneId"))
-            or "unknown"
-        ),
+        scene_id=scene_id,
         acquisition_time=_first(
             properties.get("startTime") or properties.get("start_time")
         ),
         platform=_first(properties.get("platform")),
-        polarization=str(polarization) if polarization is not None else None,
+        frequency_band=_infer_frequency_band(properties),
+        polarization=_infer_polarization(properties, scene_id),
+        processing_level=_first(properties.get("processingLevel")),
         browse_url=browse,
         download_url=download,
         bounds=bounds,
@@ -159,59 +213,116 @@ def _normalize_result(result: Any) -> LiveSarScene:
     )
 
 
-def search_live(request: LiveSarSearchRequest) -> LiveSarSearchResponse:
-    """Search NASA ASF for recent SAR scenes over a coordinate.
+def _flatten_results(payload: Any) -> list[dict[str, Any]]:
+    """ASF may return a list, a nested list, or a single result object."""
 
-    Any SDK/network failure is converted into a clean, user-facing fallback
-    message so the frontend demo never hard-fails.
-    """
+    if isinstance(payload, dict):
+        scene_keys = ("sceneId", "granuleName", "productName", "fileName", "sceneName")
+        return [payload] if any(key in payload for key in scene_keys) else []
+    if isinstance(payload, list):
+        flattened: list[dict[str, Any]] = []
+        for item in payload:
+            flattened.extend(_flatten_results(item))
+        return flattened
+    return []
 
-    if asf_search is None:
-        return LiveSarSearchResponse(
-            count=0,
-            results=[],
-            message=(
-                "The NASA ASF SDK (asf-search) is not available in this "
-                "environment. Install it to enable live scene search."
-            ),
-        )
 
-    platforms = _platforms()
-    wkt = _build_wkt(request.lat, request.lon)
-
-    try:
-        search_kwargs: dict[str, Any] = {
+def _search_query(
+    request: LiveSarSearchRequest,
+    wkt: str,
+    platform: str,
+    processing_level: str,
+) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode(
+        {
+            "platform": platform,
+            "processingLevel": processing_level,
             "intersectsWith": wkt,
-            "processingLevel": "GRD_HD",
             "start": _to_iso(request.start_date),
             "end": _to_iso(request.end_date),
             "maxResults": request.max_results,
+            "output": "json",
         }
-        if platforms:
-            search_kwargs["platform"] = platforms
+    )
+    url = f"{ASF_SEARCH_URL}?{params}"
+    api_request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Ethio-SARs/1.0 (NASA Space Apps demo)"},
+    )
+    with urllib.request.urlopen(api_request, timeout=45) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return _flatten_results(payload)
 
-        raw_results = asf_search.geo_search(**search_kwargs)
-        results = [_normalize_result(item) for item in raw_results]
-    except Exception as exc:  # noqa: BLE001 - external service boundary
-        logger.warning("ASF geo_search failed: %s", exc)
-        return LiveSarSearchResponse(
-            count=0,
-            results=[],
-            message=(
+
+def search_live(request: LiveSarSearchRequest) -> LiveSarSearchResponse:
+    """Search NASA ASF for Sentinel-1 GRD and NISAR GCOV scenes.
+
+    The ASF Search API uses different processing levels for the two missions, so
+    this function issues one query per mission and merges the normalized results.
+    Network and service failures become a clean fallback message.
+    """
+
+    wkt = _build_wkt(request.lat, request.lon)
+    raw_results: list[dict[str, Any]] = []
+    failures: list[str] = []
+
+    for query in ASF_QUERIES:
+        try:
+            batch = _search_query(
+                request,
+                wkt,
+                query["platform"],
+                query["processingLevel"],
+            )
+            raw_results.extend(batch)
+        except Exception as exc:  # noqa: BLE001 - external service boundary
+            logger.warning(
+                "ASF %s/%s search failed: %s",
+                query["platform"],
+                query["processingLevel"],
+                exc,
+            )
+            failures.append(f"{query['platform']} {query['processingLevel']}")
+
+    if not raw_results:
+        if failures:
+            message = (
                 "Live NASA ASF search is temporarily unavailable (the service "
                 "may be timing out). Please retry in a moment or use the "
                 "curated GERD timeline."
-            ),
+            )
+        else:
+            message = (
+                "No Sentinel-1 GRD or NISAR GCOV scenes matched this coordinate "
+                "and date window. Try widening the date range."
+            )
+        return LiveSarSearchResponse(count=0, results=[], message=message)
+
+    results: list[LiveSarScene] = []
+    seen: set[str] = set()
+    for item in raw_results:
+        scene = _normalize_result(item)
+        if scene.scene_id in seen:
+            continue
+        seen.add(scene.scene_id)
+        results.append(scene)
+
+    results.sort(
+        key=lambda scene: scene.acquisition_time or "",
+        reverse=True,
+    )
+    results = results[: request.max_results]
+
+    message = None
+    if failures:
+        message = (
+            "Some ASF mission queries failed ("
+            + ", ".join(failures)
+            + "); showing the scenes that were available."
         )
 
-    if not results:
-        return LiveSarSearchResponse(
-            count=0,
-            results=[],
-            message=(
-                "No Sentinel-1 or NISAR GRD scenes matched this coordinate and "
-                "date window. Try widening the date range."
-            ),
-        )
-
-    return LiveSarSearchResponse(count=len(results), results=results)
+    return LiveSarSearchResponse(
+        count=len(results),
+        results=results,
+        message=message,
+    )

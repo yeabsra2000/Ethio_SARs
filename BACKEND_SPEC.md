@@ -10,8 +10,8 @@
 ## 2. Architecture & Tech Stack
 * **Language:** Python 3.11+
 * **Web Framework:** `FastAPI` + `uvicorn` (with CORS enabled for frontend integration and automatic OpenAPI/Swagger docs at `/docs`)
-* **Satellite Data Search:** `asf_search` (official NASA Alaska Satellite Facility Python SDK for NISAR and Sentinel-1 data)
-* **AI & RAG:** `google-genai` (official Google GenAI SDK using `gemini-2.5-flash` for fast reasoning and `text-embedding-004` for embeddings) + `chromadb` (or lightweight `numpy` cosine-similarity store for zero-dependency reliability)
+* **Satellite Data Search:** NASA ASF Search API (direct HTTP), with mission-specific `Sentinel-1 / GRD_HD` and `NISAR / GCOV` queries; `asf_search` remains an optional SDK for manual exploration.
+* **AI & RAG:** `google-genai` (official Google GenAI SDK using `gemini-3.1-flash-lite` for fast reasoning and `gemini-embedding-001` for embeddings) + lightweight `numpy` cosine-similarity store for zero-dependency reliability
 * **Geospatial / Image Handling:** `Pillow` (for serving/resizing PNG overlays), `pydantic` (for strict JSON schemas)
 
 ---
@@ -38,12 +38,17 @@ gerd-sar-backend/
 │   │   ├── gerd_2019_pre.png
 │   │   ├── gerd_2021_fill2.png
 │   │   ├── gerd_2023_fill4.png
-│   │   └── gerd_2025_full.png
-│   └── knowledge_base/      # Markdown/TXT docs for RAG (SAR physics + GERD hydrology)
+│   │   ├── gerd_2025_full.png
+│   │   ├── nisar_2026_10_25.png
+│   │   └── nisar_2026_11_06.png
+│   └── knowledge_base/      # Markdown/TXT docs for RAG (SAR physics + GERD/NISAR hydrology)
 │       ├── sar_physics_guide.md
-│       └── gerd_hydrology_timeline.md
+│       ├── gerd_hydrology_timeline.md
+│       └── nisar_gerd_timeline.md
 ├── scripts/
-│   └── generate_mock_overlays.py  # Generates placeholder SAR PNGs if real ones aren't downloaded yet
+│   ├── generate_mock_overlays.py  # Generates placeholder SAR PNGs if real ones aren't downloaded yet
+│   └── ingest_nisar_browse.py     # NISAR public browse → GERD RGBA overlay
+├── LICENSE
 ├── .env.example
 ├── requirements.txt
 └── README.md
@@ -93,10 +98,20 @@ To render 2D SAR images onto a 3D map (such as **CesiumJS `SingleTileImageryProv
         "year": 2025,
         "date": "2025-11-10",
         "label": "Full Reservoir Capacity",
-        "sensor": "NISAR / Sentinel-1 SAR",
+        "sensor": "Sentinel-1A C-Band SAR (VV Polarization)",
         "overlay_url": "/static/overlays/gerd_2025_full.png",
         "water_area_sq_km": 1874.0,
         "backscatter_summary": "Extensive specular reflection (pitch-black SAR signature) indicating deep standing water across 1,874 sq km."
+      },
+      {
+        "id": "gerd_2026_11_06",
+        "year": 2026,
+        "date": "2026-11-06",
+        "label": "NISAR 12-Day Repeat",
+        "sensor": "NISAR L-Band SAR (HH Polarization)",
+        "overlay_url": "/static/overlays/nisar_2026_11_06.png",
+        "water_area_sq_km": 1043.2,
+        "backscatter_summary": "NISAR L-band browse image; low-backscatter reservoir estimate is approximate, not a calibrated water mask."
       }
     ]
   }
@@ -116,9 +131,10 @@ To render 2D SAR images onto a 3D map (such as **CesiumJS `SingleTileImageryProv
   ```
 * **Implementation Details:**
   * Construct a small WKT polygon buffer (`~0.1°` box around `lat, lon`).
-  * Call `asf_search.geo_search(intersectsWith=wkt, platform=[asf_search.PLATFORM.SENTINEL1, asf_search.PLATFORM.NISAR], processingLevel='GRD_HD', start=start_date, end=end_date, maxResults=max_results)`.
+  * Query the ASF Search API twice: `platform=Sentinel-1&processingLevel=GRD_HD` and `platform=NISAR&processingLevel=GCOV`.
+  * Merge, deduplicate, sort newest-first, and truncate to `max_results`.
   * Wrap in `try/except` with a clean fallback message if ASF API times out or returns 0 scenes.
-  * Return scene ID, acquisition timestamp, polarization, browse image URL (`properties['browse']`), and bounding coordinates.
+  * Return scene ID, acquisition timestamp, platform, frequency band, polarization, processing level, browse image URL, and bounding coordinates.
 
 ### D. `POST /api/ai/analyze-change`
 * **Purpose:** Triggered automatically when the user moves the frontend before/after slider or asks a question in the chat panel. Uses **Gemini API + RAG** to explain the radar change.
@@ -132,9 +148,9 @@ To render 2D SAR images onto a 3D map (such as **CesiumJS `SingleTileImageryProv
   }
   ```
 * **RAG Pipeline Implementation (`app/services/rag_engine.py`):**
-  1. On startup, load all `.md` files from `data/knowledge_base/`, chunk by paragraph/section, and embed using `google-genai` (`text-embedding-004`). Store vectors in memory (using `numpy`) so no external vector DB server is needed.
+  1. On startup, load all `.md` files from `data/knowledge_base/`, chunk by paragraph/section, and embed using `google-genai` (`gemini-embedding-001`). Store vectors in memory (using `numpy`) so no external vector DB server is needed.
   2. At query time, embed `user_question` + scene context, retrieve top 3 relevant chunks via cosine similarity.
-  3. Call `client.models.generate_content(model="gemini-2.5-flash", contents=prompt)` with a strict system prompt instructing Gemini to act as an Earth Observation SAR Scientist explaining radar backscatter (specular reflection vs. rough terrain) clearly to non-experts, citing retrieved facts.
+  3. Call `client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)` with a strict system prompt instructing Gemini to act as an Earth Observation SAR Scientist explaining radar backscatter and NISAR/Sentinel-1 sensor differences clearly to non-experts, citing retrieved facts.
   4. Return structured JSON: `{"explanation": "...", "key_takeaways": ["...", "..."], "citations": ["..."]}`.
 
 ---
