@@ -3,1162 +3,181 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dancing with the SARs · GERD Mission Console</title>
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-  <style>
-    :root {
-      --bg: #050d15;
-      --panel: #09151f;
-      --panel-2: #0d2030;
-      --panel-3: #112a3d;
-      --line: #1a3a52;
-      --text: #e7f3fa;
-      --muted: #88a5b8;
-      --accent: #2fd3ff;
-      --accent-2: #ffb454;
-      --ok: #3ddc97;
-      --warn: #ffcc66;
-      --err: #ff6b7a;
-      --shadow: 0 18px 45px rgba(0, 0, 0, 0.4);
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      overflow: hidden;
-      color: var(--text);
-      font-family: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
-      background:
-        radial-gradient(circle at 15% 0%, rgba(47, 211, 255, 0.10), transparent 34rem),
-        radial-gradient(circle at 95% 100%, rgba(255, 180, 84, 0.07), transparent 32rem),
-        var(--bg);
-    }
-    .topbar {
-      height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 0 18px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(5, 13, 21, 0.92);
-      backdrop-filter: blur(12px);
-      position: relative;
-      z-index: 6;
-    }
-    .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
-    .brand .orb {
-      width: 28px; height: 28px; border-radius: 50%;
-      background: conic-gradient(from 210deg, var(--accent), #1b6f9c, var(--accent-2), var(--accent));
-      box-shadow: 0 0 18px rgba(47, 211, 255, 0.5);
-      flex: 0 0 auto;
-    }
-    .brand h1 { font-size: 15px; line-height: 1.1; margin: 0; letter-spacing: 0.02em; }
-    .brand .sub { font-size: 10px; color: var(--muted); display: block; margin-top: 3px; letter-spacing: 0.07em; text-transform: uppercase; }
-    .statusbar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
-    .chip {
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--muted);
-      font-size: 10.5px;
-      padding: 6px 9px;
-      border-radius: 999px;
-      white-space: nowrap;
-      text-decoration: none;
-    }
-    .chip.ok { color: var(--ok); border-color: rgba(61, 220, 151, 0.38); }
-    .chip.warn { color: var(--warn); border-color: rgba(255, 204, 102, 0.34); }
-    .chip.err { color: var(--err); border-color: rgba(255, 107, 122, 0.34); }
-    .chip.link { color: var(--accent); }
-    .layout {
-      display: grid;
-      grid-template-columns: 352px minmax(0, 1fr) 386px;
-      height: calc(100vh - 64px);
-    }
-    .panel { overflow-y: auto; padding: 15px; background: rgba(9, 21, 31, 0.94); scrollbar-width: thin; scrollbar-color: #21465d transparent; }
-    .panel.left { border-right: 1px solid var(--line); }
-    .panel.right { border-left: 1px solid var(--line); }
-    .panel section + section { margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
-    h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.13em; color: var(--accent); margin: 0 0 10px; }
-    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-    .section-head h2 { margin: 0; }
-    .section-actions { display: flex; gap: 5px; }
-    .muted { color: var(--muted); }
-    .tiny { font-size: 10.5px; line-height: 1.5; }
-    .scene-list { display: flex; flex-direction: column; gap: 8px; }
-    .scene-card {
-      display: grid;
-      grid-template-columns: 62px minmax(0, 1fr) 20px;
-      gap: 9px;
-      padding: 8px;
-      border: 1px solid var(--line);
-      border-radius: 11px;
-      background: linear-gradient(145deg, rgba(17, 42, 61, 0.9), rgba(8, 20, 30, 0.95));
-      cursor: pointer;
-      transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
-    }
-    .scene-card:hover { border-color: rgba(47, 211, 255, 0.45); transform: translateY(-1px); }
-    .scene-card.is-selected { border-color: rgba(47, 211, 255, 0.7); background: linear-gradient(145deg, rgba(20, 55, 78, 0.95), rgba(8, 23, 34, 0.95)); }
-    .scene-card img { width: 62px; height: 62px; border-radius: 7px; object-fit: cover; background: #000; }
-    .scene-card .title { font-size: 12px; font-weight: 650; margin-bottom: 2px; }
-    .scene-card .meta { font-size: 10px; color: var(--muted); line-height: 1.45; }
-    .scene-check { width: 16px; height: 16px; accent-color: var(--accent); margin: 1px 0 0; cursor: pointer; }
-    .order-badge {
-      display: inline-flex; align-items: center; justify-content: center;
-      min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
-      background: rgba(47, 211, 255, 0.16); color: var(--accent);
-      font-size: 9px; font-weight: 700; margin-left: 5px;
-    }
-    .sensor-badge {
-      display: inline-block; margin-left: 5px; padding: 1px 5px; border-radius: 999px;
-      border: 1px solid rgba(47, 211, 255, 0.3); background: rgba(47, 211, 255, 0.1);
-      color: var(--accent); font-size: 8.5px; font-weight: 700; vertical-align: 1px;
-    }
-    .sensor-badge.nisar {
-      border-color: rgba(255, 196, 84, 0.35); background: rgba(255, 196, 84, 0.12);
-      color: #ffce73;
-    }
-    .btn {
-      appearance: none; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
-      border-radius: 8px; padding: 8px 11px; cursor: pointer; font-size: 11.5px; font-weight: 600;
-      transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-    }
-    .btn:hover { border-color: var(--accent); color: var(--accent); }
-    .btn:disabled { opacity: 0.55; cursor: wait; }
-    .btn.primary { background: linear-gradient(135deg, #0e86b0, #0a5f7a); border-color: #25b6df; color: #f4fcff; }
-    .btn.primary:hover { background: linear-gradient(135deg, #119fd0, #0c7494); color: #fff; }
-    .btn.small { padding: 5px 8px; font-size: 10px; border-radius: 6px; }
-    .btn.tiny { padding: 4px 6px; font-size: 9.5px; border-radius: 5px; }
-    .btn.active { border-color: var(--accent); color: var(--accent); background: rgba(47, 211, 255, 0.12); }
-    .controls-row { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
-    .controls-row select { width: auto; flex: 1; min-width: 80px; }
-    .layer-controls { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
-    .layer-row { border: 1px solid var(--line); border-radius: 9px; padding: 8px 9px; background: rgba(8, 21, 31, 0.66); }
-    .layer-head { display: flex; align-items: center; gap: 6px; font-size: 10.5px; }
-    .layer-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(47, 211, 255, 0.7); flex: 0 0 auto; }
-    .layer-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .layer-val { color: var(--accent); font-variant-numeric: tabular-nums; }
-    .layer-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: center; margin-top: 6px; }
-    input[type="range"] { width: 100%; padding: 0; accent-color: var(--accent); }
-    select, input[type="number"], input[type="date"], textarea {
-      width: 100%; color: var(--text); background: #07141f; border: 1px solid var(--line);
-      border-radius: 7px; padding: 8px 9px; font: inherit; font-size: 11px; outline: none;
-    }
-    select:focus, input:focus, textarea:focus { border-color: var(--accent); }
-    textarea { resize: vertical; min-height: 78px; line-height: 1.5; }
-    label.field { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: block; margin-bottom: 4px; }
-    .map-wrap { position: relative; min-height: 0; }
-    #map { position: absolute; inset: 0; background: #050d15; }
-    .map-hud { position: absolute; left: 13px; top: 13px; right: 13px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; z-index: 2; pointer-events: none; }
-    .hud-group { display: flex; gap: 6px; flex-wrap: wrap; pointer-events: auto; }
-    .seg { display: flex; border: 1px solid rgba(26, 58, 82, 0.9); border-radius: 7px; overflow: hidden; background: rgba(8, 22, 33, 0.9); }
-    .seg button { appearance: none; border: 0; background: transparent; color: var(--muted); padding: 5px 8px; font-size: 10px; font-weight: 650; cursor: pointer; }
-    .seg button.active { background: rgba(47, 211, 255, 0.16); color: var(--accent); }
-    .focus-pill {
-      pointer-events: auto; border: 1px solid rgba(47, 211, 255, 0.35); background: rgba(5, 16, 26, 0.88);
-      color: var(--text); font-size: 10.5px; padding: 7px 10px; border-radius: 999px; backdrop-filter: blur(8px);
-      max-width: 310px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .focus-pill strong { color: var(--accent-2); }
-    .map-legend {
-      position: absolute; left: 13px; bottom: 13px; z-index: 2; display: flex; align-items: center; gap: 10px;
-      flex-wrap: wrap; font-size: 9.5px; color: var(--muted); background: rgba(5, 16, 26, 0.78);
-      border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; backdrop-filter: blur(8px);
-    }
-    .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
-    .sw.dark { background: #02090e; border: 1px solid #2b4c60; }
-    .sw.bright { background: #e8e8e8; }
-    .sw.water { background: #123a5a; }
-    .map-fallback {
-      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-      padding: 24px; text-align: center; color: var(--warn); background: #07121b; z-index: 3;
-    }
-    .hidden { display: none !important; }
-    form { display: flex; flex-direction: column; gap: 8px; }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-    .output { margin-top: 11px; }
-    .ai-badge {
-      display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(47, 211, 255, 0.28);
-      background: rgba(47, 211, 255, 0.07); color: var(--accent); border-radius: 999px;
-      padding: 4px 8px; font-size: 9.5px; margin-bottom: 9px;
-    }
-    .ai-badge.warn { color: var(--warn); border-color: rgba(255, 204, 102, 0.3); background: rgba(255, 204, 102, 0.07); }
-    .ai-explanation { font-size: 12px; line-height: 1.62; color: #d9ebf5; white-space: pre-wrap; }
-    .output ul { margin: 8px 0 0; padding-left: 17px; font-size: 11px; line-height: 1.55; color: var(--muted); }
-    .output li + li { margin-top: 4px; }
-    .citation-box { margin-top: 9px; padding: 7px 9px; border-left: 2px solid var(--accent); background: rgba(47, 211, 255, 0.06); font-size: 9.5px; color: var(--muted); }
-    .fallback-box { margin-top: 8px; padding: 7px 9px; border-left: 2px solid var(--warn); background: rgba(255, 204, 102, 0.06); font-size: 9.5px; color: var(--warn); line-height: 1.5; }
-    .result-card {
-      border: 1px solid var(--line); border-radius: 9px; padding: 8px; margin-top: 8px;
-      display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 8px; background: rgba(8, 21, 31, 0.62);
-    }
-    .result-card img { width: 68px; height: 68px; object-fit: cover; border-radius: 6px; background: #000; }
-    .result-card .id { font-size: 10px; word-break: break-all; font-weight: 600; }
-    .result-card .meta { font-size: 9.5px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
-    .message {
-      border: 1px dashed var(--line); border-radius: 9px; padding: 9px; color: var(--muted);
-      font-size: 10.5px; line-height: 1.5;
-    }
-    .message.err { color: var(--err); border-color: rgba(255, 107, 122, 0.34); }
-    .loading { color: var(--accent); font-size: 11px; display: flex; align-items: center; gap: 8px; }
-    .loading::before {
-      content: ""; width: 10px; height: 10px; border-radius: 50%;
-      border: 2px solid rgba(47, 211, 255, 0.24); border-top-color: var(--accent);
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @media (max-width: 1180px) {
-      body { overflow: auto; }
-      .layout { display: block; height: auto; }
-      .panel { overflow: visible; }
-      .panel.left, .panel.right { border: 0; border-bottom: 1px solid var(--line); }
-      .map-wrap { height: 64vh; min-height: 430px; }
-      .panel { padding: 13px; }
-    }
-  </style>
+  <meta name="theme-color" content="#0c121b">
+  <meta name="description" content="Explore satellite radar observations of Lake Nigat and the Grand Ethiopian Renaissance Dam.">
+  <title>EthioSAR | Lake Nigat Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/demo/styles.css">
+  <script async id="map-library" src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script defer src="/demo/app.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="orb"></div>
-      <div>
-        <h1>Dancing with the SARs</h1>
-        <span class="sub" id="mission-name">GERD / Lake Nigat · Ethiopia</span>
-      </div>
-    </div>
-    <div class="statusbar">
-      <span class="chip" id="api-health">API · checking…</span>
-      <span class="chip" id="ai-status">AI · checking…</span>
-      <a class="chip link" href="/docs" target="_blank" rel="noreferrer">API Docs ↗</a>
+  <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7a5 5 0 1 0 5 5m-5 0 7-7"/><circle cx="12" cy="12" r="1" fill="currentColor"/></symbol>
+    <symbol id="icon-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zm6-3v15m6-12v15"/></symbol>
+    <symbol id="icon-compare" viewBox="0 0 24 24"><path d="M12 3v18M8 6H3v12h5m8-12h5v12h-5M6 12h2m10 0h-2"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 5 5"/></symbol>
+    <symbol id="icon-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/></symbol>
+    <symbol id="icon-terrain" viewBox="0 0 24 24"><path d="m2 19 7-13 4 7 3-5 6 11ZM7 10l2 2 2-2"/></symbol>
+    <symbol id="icon-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="icon-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zm-9 9 9 5 9-5M3 16l9 5 9-5"/></symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z" fill="currentColor"/></symbol>
+    <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M9 5v14m6-14v14" stroke-width="3"/></symbol>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-wave" viewBox="0 0 24 24"><path d="M2 8h4l3-5 5 10 3-5h5M2 17c3 0 3-2 5-2s3 2 5 2 3-2 5-2 3 2 5 2M2 21c3 0 3-2 5-2s3 2 5 2 3-2 5-2 3 2 5 2"/></symbol>
+    <symbol id="icon-spark" viewBox="0 0 24 24"><path d="M12 2c0 6 4 10 10 10-6 0-10 4-10 10 0-6-4-10-10-10 6 0 10-4 10-10Z"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  </svg>
+
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" aria-label="EthioSAR home"><span class="brand-mark"><svg><use href="#icon-radar"/></svg></span><span>Ethio<span class="accent">SAR</span><small>EARTH OBSERVATION</small></span></a>
+      <nav class="main-nav" aria-label="Explorer sections">
+        <button type="button" data-view="explore" aria-controls="explore-panel" aria-current="page"><svg><use href="#icon-map"/></svg> Explore</button>
+        <button type="button" data-view="compare" aria-controls="compare-panel"><svg><use href="#icon-compare"/></svg> Compare</button>
+        <button type="button" data-view="search" aria-controls="search-panel"><svg><use href="#icon-search"/></svg> Search</button>
+      </nav>
+      <span class="system-status" id="system-status" data-state="loading"><i></i><span>Connecting</span></span>
     </div>
   </header>
 
-  <main class="layout">
-    <aside class="panel left">
-      <section>
-        <div class="section-head">
-          <h2>Timeline · <span id="selected-count">0</span> selected</h2>
-          <div class="section-actions">
-            <button class="btn tiny" id="select-all" type="button">All</button>
-            <button class="btn tiny" id="clear-all" type="button">Clear</button>
-          </div>
-        </div>
-        <div class="scene-list" id="scene-list">
-          <div class="message">Loading scenes…</div>
-        </div>
-        <div class="tiny muted" style="margin-top:9px">Click a card or checkbox to add/remove it from the map stack.</div>
-      </section>
-
-      <section>
-        <div class="section-head">
-          <h2>Map stack &amp; playback</h2>
-        </div>
-        <div class="controls-row">
-          <button class="btn small" id="play-btn" type="button">▶ Play selected</button>
-          <select id="speed-select" aria-label="Playback speed">
-            <option value="1200">Fast · 1.2s</option>
-            <option value="1800" selected>Normal · 1.8s</option>
-            <option value="2600">Slow · 2.6s</option>
-          </select>
-        </div>
-        <div class="layer-controls" id="layer-controls">
-          <div class="message">Select one or more scenes.</div>
-        </div>
-      </section>
-
-      <section>
-        <div class="section-head">
-          <h2>AI comparison pair</h2>
-          <div class="section-actions">
-            <button class="btn tiny" id="pair-first-last" type="button">S-1 first ↔ last</button>
-            <button class="btn tiny" id="pair-nisar" type="button">NISAR 12-day</button>
-          </div>
-        </div>
-        <div class="form-grid">
-          <div>
-            <label class="field" for="before-select">Before</label>
-            <select id="before-select"></select>
-          </div>
-          <div>
-            <label class="field" for="after-select">After</label>
-            <select id="after-select"></select>
-          </div>
-        </div>
-        <div class="tiny muted" style="margin-top:7px">The AI can compare any two scenes. NISAR comparisons use calibrated GCOV HH water masks and remain cross-sensor.</div>
-      </section>
-    </aside>
-
-    <section class="map-wrap">
-      <div id="map"></div>
-      <div class="map-hud">
-        <div class="hud-group">
-          <button class="btn small active" id="terrain-toggle" type="button">Terrain · ON</button>
-          <div class="seg" id="basemap-toggle">
-            <button data-base="satellite" class="active" type="button">Satellite</button>
-            <button data-base="dark" type="button">Dark</button>
-          </div>
-          <button class="btn small" id="reset-view" type="button">Reset</button>
-        </div>
-        <div class="focus-pill" id="focus-pill">Loading map…</div>
+  <main class="shell">
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <div class="eyebrow"><svg><use href="#icon-pin"/></svg> BLUE NILE BASIN <span></span> ETHIOPIA</div>
+        <h1 id="page-title">Lake Nigat Explorer</h1>
+        <p>Trace the rise of the Grand Ethiopian Renaissance Dam reservoir through satellite radar imagery.</p>
       </div>
-      <div class="map-legend">
-        <span><span class="sw dark"></span>smooth water</span>
-        <span><span class="sw bright"></span>rough terrain / dam</span>
-        <span><span class="sw water"></span>selected SAR stack</span>
-      </div>
-      <div id="map-fallback" class="map-fallback hidden">
-        The MapLibre library could not load. Check your internet connection and refresh.
-        The scene thumbnails and API panels still work.
+      <div class="coordinates">
+        <span class="coordinate-icon"><svg><use href="#icon-target"/></svg></span>
+        <div><span class="small-label">OBSERVATION SITE</span><strong id="site-coordinates">11.215° N &nbsp; 35.093° E</strong></div>
       </div>
     </section>
 
-    <aside class="panel right">
-      <section>
-        <div class="section-head">
-          <h2>Calibrated NISAR Change</h2>
-        </div>
-        <div class="output" id="nisar-change">
-          <div class="message tiny">Loading calibrated GCOV statistics…</div>
-        </div>
-      </section>
+    <div class="workspace">
+      <div class="map-column">
+        <section class="card map-card" aria-labelledby="map-title">
+          <header class="card-head">
+            <h2 id="map-title"><svg><use href="#icon-map"/></svg> Radar map</h2>
+            <div class="map-settings" id="map-settings" hidden>
+              <div class="segmented" aria-label="Basemap">
+                <button type="button" data-base="satellite" aria-pressed="true">Satellite</button>
+                <button type="button" data-base="dark" aria-pressed="false">Dark</button>
+              </div>
+              <button type="button" id="terrain-toggle" class="control" aria-label="Terrain" aria-pressed="false" title="Toggle 3D terrain"><svg><use href="#icon-terrain"/></svg><span>Terrain</span></button>
+            </div>
+            <span id="preview-mode" class="subtle-label">Radar preview</span>
+          </header>
+          <div class="map-viewport">
+            <div id="image-stack" class="image-stack" aria-label="Radar image preview"></div>
+            <div id="map" class="map" aria-label="Interactive map of Lake Nigat" hidden></div>
+            <div class="map-ident" id="map-ident" hidden>
+              <div class="small-label"><i></i> <span id="map-sensor"></span></div>
+              <strong id="map-date"></strong>
+              <small id="map-caption"></small>
+            </div>
+            <div class="map-tools" id="map-tools" hidden>
+              <div>
+                <button type="button" id="zoom-in" aria-label="Zoom in"><svg><use href="#icon-plus"/></svg></button>
+                <button type="button" id="zoom-out" aria-label="Zoom out"><svg><use href="#icon-minus"/></svg></button>
+              </div>
+              <button type="button" id="reset-map" aria-label="Recenter on Lake Nigat" title="Recenter on Lake Nigat"><svg><use href="#icon-target"/></svg></button>
+            </div>
+            <div class="map-message" id="map-message" role="status">Loading radar scenes…</div>
+          </div>
+          <footer class="map-footer">
+            <div><span class="legend-dot low"></span> Low return <span class="legend-dot high"></span> High return <span id="mask-legend" hidden><span class="legend-dot mask"></span> Water mask</span></div>
+            <span id="map-credit">SAR imagery · Sentinel-1 / NISAR</span>
+          </footer>
+        </section>
 
-      <section>
-        <div class="section-head">
-          <h2>AI Change Explainer</h2>
-        </div>
-        <form id="ai-form">
-          <label class="field" for="ai-question">Question</label>
-          <textarea id="ai-question" maxlength="2000">Why did the reservoir turn dark between these dates, and what does that tell us about water storage?</textarea>
-          <button class="btn primary" type="submit" id="ai-submit">Analyze with Gemini + RAG</button>
-        </form>
-        <div class="output" id="ai-output">
-          <div class="message tiny">Pick a before/after pair, then ask a question. The answer uses vector RAG over the local SAR knowledge base.</div>
-        </div>
-      </section>
+        <section class="card timeline" aria-labelledby="timeline-title">
+          <header class="card-head">
+            <div><h2 id="timeline-title"><svg><use href="#icon-layers"/></svg> Observation timeline</h2><p id="timeline-help">Choose a scene or use the checkboxes to stack layers.</p></div>
+            <div class="timeline-actions">
+              <select id="speed" aria-label="Playback speed"><option value="1200">Fast</option><option value="2000" selected>Normal</option><option value="3500">Slow</option></select>
+              <button type="button" class="control play" id="play" disabled><svg><use href="#icon-play"/></svg><span>Play</span></button>
+            </div>
+          </header>
+          <div class="timeline-list" id="timeline-list" aria-label="Radar acquisitions"></div>
+          <p class="inline-status" id="timeline-status" role="status">Loading the observation timeline…</p>
+          <button type="button" class="control retry" id="retry" hidden>Retry timeline</button>
+        </section>
+      </div>
 
-      <section>
-        <div class="section-head">
-          <h2>Live NASA ASF Search</h2>
-        </div>
-        <form id="search-form">
-          <div class="form-grid">
-            <div>
-              <label class="field" for="lat">Latitude</label>
-              <input id="lat" type="number" step="0.0001" min="-90" max="90" value="11.215">
+      <aside class="inspector" aria-label="Explorer tools">
+        <section id="explore-panel" class="view-panel">
+          <article class="card scene">
+            <header class="card-head"><h2><svg><use href="#icon-layers"/></svg> Active scene</h2><span class="sensor-tag" id="scene-platform" hidden></span></header>
+            <div class="card-body" id="scene-details"><p class="quiet">Loading scene details…</p></div>
+          </article>
+          <article class="card nisar">
+            <header class="card-head"><h2><svg><use href="#icon-wave"/></svg> NISAR water change</h2></header>
+            <div class="card-body" id="nisar-details"><p class="quiet">Loading calibrated water data…</p></div>
+            <div class="card-end" id="nisar-action" hidden><button type="button" class="text-button" id="compare-nisar">Compare NISAR scenes <svg><use href="#icon-arrow"/></svg></button></div>
+          </article>
+        </section>
+
+        <section id="compare-panel" class="view-panel" hidden>
+          <article class="card compare-controls">
+            <header class="card-head"><h2><svg><use href="#icon-compare"/></svg> Compare scenes</h2></header>
+            <div class="card-body">
+              <div class="preset-row"><button type="button" class="control" data-pair="Sentinel-1" disabled>Sentinel-1 filling</button><button type="button" class="control" data-pair="NISAR" disabled>NISAR repeat</button></div>
+              <div class="form-grid pair-grid">
+                <label>Before<select id="before" disabled></select></label>
+                <label>After<select id="after" disabled></select></label>
+              </div>
+              <div id="pair-preview" class="pair-preview" hidden></div>
+              <p id="pair-caution" class="quiet"></p>
+              <label class="range-label" for="blend">Map blend <output id="blend-value">50% after</output></label>
+              <input type="range" id="blend" min="0" max="100" value="50" disabled>
             </div>
-            <div>
-              <label class="field" for="lon">Longitude</label>
-              <input id="lon" type="number" step="0.0001" min="-180" max="180" value="35.093">
+          </article>
+          <article class="card explainer">
+            <header class="card-head"><h2><svg><use href="#icon-spark"/></svg> Explain the change</h2></header>
+            <div class="card-body">
+              <form id="ai-form">
+                <label for="question">Question</label>
+                <textarea id="question" rows="3" required maxlength="2000" placeholder="Ask about the two selected scenes">Why does the reservoir appear dark in radar imagery?</textarea>
+                <button type="submit" class="primary" id="ai-submit" disabled>Analyze change <svg><use href="#icon-arrow"/></svg></button>
+              </form>
+              <p class="quiet" id="ai-mode"></p>
+              <div id="ai-result" class="result" aria-live="polite"></div>
             </div>
-          </div>
-          <div class="form-grid">
-            <div>
-              <label class="field" for="start-date">Start date</label>
-              <input id="start-date" type="date" value="2026-10-01">
+          </article>
+        </section>
+
+        <section id="search-panel" class="view-panel" hidden>
+          <article class="card">
+            <header class="card-head"><h2><svg><use href="#icon-search"/></svg> Search NASA ASF</h2></header>
+            <div class="card-body">
+              <p class="quiet panel-intro">Find Sentinel-1 and NISAR acquisitions by location and date.</p>
+              <form id="search-form">
+                <div class="form-grid">
+                  <label>Latitude<input id="latitude" type="number" step="any" min="-90" max="90" value="11.215" required></label>
+                  <label>Longitude<input id="longitude" type="number" step="any" min="-180" max="180" value="35.093" required></label>
+                </div>
+                <button type="button" class="text-button" id="use-center" hidden><svg><use href="#icon-target"/></svg> Use map center</button>
+                <div class="form-grid">
+                  <label>Start date<input id="start-date" type="date" required></label>
+                  <label>End date<input id="end-date" type="date" required></label>
+                </div>
+                <label>Maximum results<input id="max-results" type="number" min="1" max="100" value="10" required></label>
+                <button type="submit" class="primary" id="search-submit">Search acquisitions <svg><use href="#icon-arrow"/></svg></button>
+              </form>
+              <div id="search-result" class="result" aria-live="polite"></div>
             </div>
-            <div>
-              <label class="field" for="end-date">End date</label>
-              <input id="end-date" type="date" value="2026-11-14">
-            </div>
-          </div>
-          <div>
-            <label class="field" for="max-results">Max results</label>
-            <input id="max-results" type="number" min="1" max="25" value="10">
-          </div>
-          <button class="btn" type="submit" id="search-submit">Search Sentinel-1 / NISAR</button>
-        </form>
-        <div class="output" id="search-output">
-          <div class="message tiny">Queries NASA ASF live. It can take 10–30 seconds. If ASF is unavailable, a fallback message is shown.</div>
-        </div>
-      </section>
-    </aside>
+          </article>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="site-footer"><span>Dancing with the SARs · NASA Space Apps</span><a href="/docs">API documentation <span aria-hidden="true">↗</span></a></footer>
   </main>
-
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script>
-    (() => {
-      "use strict";
-
-      const state = {
-        timeline: null,
-        scenes: [],
-        selected: new Set(),
-        opacity: {},
-        before: null,
-        after: null,
-        map: null,
-        mapReady: false,
-        terrain: true,
-        basemap: "satellite",
-        layerIds: new Set(),
-        playback: { timer: null, active: false, index: 0, speed: 1800 },
-      };
-
-      const $ = (id) => document.getElementById(id);
-      const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-      }[char]));
-
-      async function api(path, options = {}, timeoutMs = 90000) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-          const response = await fetch(path, {
-            headers: { "Content-Type": "application/json" },
-            signal: controller.signal,
-            ...options,
-          });
-          if (!response.ok) {
-            let detail = response.statusText;
-            try {
-              const payload = await response.json();
-              detail = payload.detail || JSON.stringify(payload);
-            } catch (_) {
-              detail = await response.text();
-            }
-            throw new Error(`${response.status} · ${detail}`);
-          }
-          return response.json();
-        } catch (error) {
-          if (error.name === "AbortError") {
-            throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
-          }
-          throw error;
-        } finally {
-          clearTimeout(timer);
-        }
-      }
-
-      const sceneById = (id) => state.scenes.find((scene) => scene.id === id) || null;
-      const selectedScenes = () => state.scenes.filter((scene) => state.selected.has(scene.id));
-
-      function initMap() {
-        if (!window.maplibregl) {
-          $("map-fallback").classList.remove("hidden");
-          return;
-        }
-        const style = {
-          version: 8,
-          sources: {
-            "basemap-satellite": {
-              type: "raster",
-              tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-              tileSize: 256,
-              maxzoom: 19,
-              attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
-            },
-            "basemap-dark": {
-              type: "raster",
-              tiles: ["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],
-              tileSize: 256,
-              maxzoom: 20,
-              attribution: "© OpenStreetMap contributors · © CARTO",
-            },
-            terrain: {
-              type: "raster-dem",
-              tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
-              encoding: "terrarium",
-              tileSize: 256,
-              maxzoom: 15,
-              attribution: "Terrain: AWS",
-            },
-          },
-          layers: [
-            { id: "basemap-satellite", type: "raster", source: "basemap-satellite" },
-            {
-              id: "basemap-dark",
-              type: "raster",
-              source: "basemap-dark",
-              layout: { visibility: "none" },
-            },
-            {
-              id: "hillshade",
-              type: "hillshade",
-              source: "terrain",
-              layout: { visibility: "none" },
-              paint: { "hillshade-exaggeration": 0.22, "hillshade-shadow-color": "#02080d" },
-            },
-          ],
-        };
-
-        try {
-          const map = new maplibregl.Map({
-            container: "map",
-            style,
-            center: [35.093, 11.215],
-            zoom: 9.9,
-            pitch: 48,
-            bearing: -10,
-            maxPitch: 78,
-            attributionControl: false,
-          });
-          state.map = map;
-          map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-          map.on("load", () => {
-            state.mapReady = true;
-            applyTerrain();
-            addMapChrome();
-            syncLayers();
-            fitTimeline();
-          });
-          map.on("error", (event) => {
-            if (event && event.error) console.warn("MapLibre warning:", event.error.message);
-          });
-        } catch (error) {
-          console.error(error);
-          $("map-fallback").classList.remove("hidden");
-        }
-      }
-
-      function applyTerrain() {
-        if (!state.mapReady || !state.map) return;
-        if (state.terrain) {
-          state.map.setTerrain({ source: "terrain", exaggeration: 1.15 });
-        } else {
-          state.map.setTerrain(null);
-        }
-      }
-
-      function setBasemap(mode) {
-        state.basemap = mode;
-        document.querySelectorAll("#basemap-toggle button").forEach((button) => {
-          button.classList.toggle("active", button.dataset.base === mode);
-        });
-        if (!state.mapReady || !state.map) return;
-        const isSatellite = mode === "satellite";
-        state.map.setLayoutProperty("basemap-satellite", "visibility", isSatellite ? "visible" : "none");
-        state.map.setLayoutProperty("basemap-dark", "visibility", isSatellite ? "none" : "visible");
-        state.map.setLayoutProperty("hillshade", "visibility", isSatellite ? "none" : "visible");
-      }
-
-      function addMapChrome() {
-        if (!state.map || !state.timeline) return;
-        const b = state.timeline.bounds;
-        if (!state.map.getSource("timeline-bounds")) {
-          state.map.addSource("timeline-bounds", {
-            type: "geojson",
-            data: {
-              type: "Feature",
-              geometry: {
-                type: "Polygon",
-                coordinates: [[
-                  [b.west, b.south], [b.east, b.south], [b.east, b.north],
-                  [b.west, b.north], [b.west, b.south],
-                ]],
-              },
-            },
-          });
-          state.map.addLayer({
-            id: "bounds-outline",
-            type: "line",
-            source: "timeline-bounds",
-            paint: {
-              "line-color": "#2fd3ff",
-              "line-width": 1.4,
-              "line-opacity": 0.8,
-              "line-dasharray": [2, 2],
-            },
-          });
-        }
-        if (!state.marker) {
-          const center = state.timeline.center;
-          state.marker = new maplibregl.Marker({ color: "#2fd3ff" })
-            .setLngLat([center.lon, center.lat])
-            .setPopup(new maplibregl.Popup({ offset: 18 }).setHTML(
-              `<strong>GERD · Lake Nigat</strong><br>${center.lat.toFixed(3)}° N, ${center.lon.toFixed(3)}° E`
-            ))
-            .addTo(state.map);
-        }
-      }
-
-      function fitTimeline() {
-        if (!state.mapReady || !state.timeline) return;
-        const b = state.timeline.bounds;
-        state.map.fitBounds([[b.west, b.south], [b.east, b.north]], {
-          padding: 54,
-          maxZoom: 11,
-          duration: 0,
-        });
-      }
-
-      function syncLayers() {
-        if (!state.mapReady || !state.map) return;
-        const desired = new Set(state.selected);
-        for (const id of Array.from(state.layerIds)) {
-          if (desired.has(id)) continue;
-          const layerId = `sar-layer-${id}`;
-          const sourceId = `sar-${id}`;
-          if (state.map.getLayer(layerId)) state.map.removeLayer(layerId);
-          if (state.map.getSource(sourceId)) state.map.removeSource(sourceId);
-          state.layerIds.delete(id);
-        }
-
-        for (const scene of selectedScenes()) {
-          const sourceId = `sar-${scene.id}`;
-          const layerId = `sar-layer-${scene.id}`;
-          if (!state.map.getSource(sourceId)) {
-            const b = scene.bounds;
-            state.map.addSource(sourceId, {
-              type: "image",
-              url: scene.overlay_url,
-              coordinates: [
-                [b.west, b.north], [b.east, b.north],
-                [b.east, b.south], [b.west, b.south],
-              ],
-            });
-            state.map.addLayer({
-              id: layerId,
-              type: "raster",
-              source: sourceId,
-              paint: {
-                "raster-opacity": state.opacity[scene.id] ?? 0.45,
-                "raster-fade-duration": 0,
-                "raster-resampling": "linear",
-                "raster-contrast": 0.12,
-                "raster-saturation": -0.18,
-                "raster-brightness-min": 0.02,
-                "raster-brightness-max": 0.98,
-              },
-            });
-            state.layerIds.add(scene.id);
-          } else {
-            state.map.setPaintProperty(layerId, "raster-opacity", state.opacity[scene.id] ?? 0.45);
-          }
-        }
-
-        if (state.map.getLayer("bounds-outline")) state.map.moveLayer("bounds-outline");
-        updateFocus();
-      }
-
-      function setOpacity(id, value) {
-        stopPlayback();
-        state.opacity[id] = Math.max(0, Math.min(100, Number(value))) / 100;
-        if (state.mapReady && state.map && state.map.getLayer(`sar-layer-${id}`)) {
-          state.map.setPaintProperty(`sar-layer-${id}`, "raster-opacity", state.opacity[id]);
-        }
-        updateLayerControlValues();
-        updateFocus();
-      }
-
-      function soloScene(id) {
-        stopPlayback();
-        selectedScenes().forEach((scene) => {
-          state.opacity[scene.id] = scene.id === id ? 0.92 : 0;
-        });
-        syncLayers();
-        updateLayerControlValues();
-        updateFocus(id);
-      }
-
-      function stepPlayback() {
-        const scenes = selectedScenes();
-        if (!scenes.length) {
-          stopPlayback();
-          return;
-        }
-        const scene = scenes[state.playback.index % scenes.length];
-        scenes.forEach((item) => {
-          state.opacity[item.id] = item.id === scene.id ? 0.92 : 0;
-        });
-        state.playback.index += 1;
-        syncLayers();
-        updateLayerControlValues();
-        updateFocus(scene.id);
-      }
-
-      function startPlayback() {
-        const scenes = selectedScenes();
-        if (scenes.length < 2) return;
-        stopPlayback();
-        state.playback.active = true;
-        state.playback.index = 0;
-        state.playback.speed = Number($("speed-select").value) || 1800;
-        $("play-btn").textContent = "❚❚ Pause";
-        stepPlayback();
-        state.playback.timer = setInterval(stepPlayback, state.playback.speed);
-      }
-
-      function stopPlayback() {
-        if (state.playback.timer) clearInterval(state.playback.timer);
-        state.playback.timer = null;
-        state.playback.active = false;
-        if ($("play-btn")) $("play-btn").textContent = "▶ Play selected";
-      }
-
-      function updateFocus(forcedId) {
-        const pill = $("focus-pill");
-        if (!pill) return;
-        let scene = forcedId ? sceneById(forcedId) : null;
-        if (!scene) {
-          const scenes = selectedScenes();
-          const visible = scenes
-            .map((item) => ({ item, opacity: state.opacity[item.id] ?? 0 }))
-            .filter((entry) => entry.opacity > 0.02)
-            .sort((a, b) => b.opacity - a.opacity);
-          if (visible.length === 1) scene = visible[0].item;
-          else if (visible.length > 1) {
-            pill.innerHTML = `<strong>${visible.length}</strong> scenes blended on the map`;
-            return;
-          } else if (scenes.length) {
-            scene = scenes[scenes.length - 1];
-          }
-        }
-        if (scene) {
-          pill.innerHTML = `Focus <strong>${esc(scene.year)}</strong> · ${esc(scene.label)} · ${esc(scene.date)}`;
-        } else {
-          pill.textContent = "No scenes selected";
-        }
-      }
-
-      function renderSceneCards() {
-        const list = $("scene-list");
-        list.innerHTML = "";
-        const order = new Map(selectedScenes().map((scene, index) => [scene.id, index + 1]));
-        state.scenes.forEach((scene) => {
-          const card = document.createElement("article");
-          card.className = `scene-card${state.selected.has(scene.id) ? " is-selected" : ""}`;
-          card.dataset.id = scene.id;
-          const badge = order.has(scene.id)
-            ? `<span class="order-badge">${order.get(scene.id)}</span>`
-            : "";
-          const sensorLabel = [scene.platform, scene.frequency_band].filter(Boolean).join(" · ");
-          const sensorBadge = sensorLabel
-            ? `<span class="sensor-badge${scene.platform === "NISAR" ? " nisar" : ""}">${esc(sensorLabel)}</span>`
-            : "";
-          const areaNote = scene.area_note ? ` title="${esc(scene.area_note)}"` : "";
-          card.innerHTML = `
-            <a href="${esc(scene.overlay_url)}" target="_blank" rel="noreferrer" title="Open full PNG">
-              <img src="${esc(scene.overlay_url)}" alt="${esc(scene.label)} overlay" loading="lazy">
-            </a>
-            <div>
-              <div class="title">${esc(scene.year)} · ${esc(scene.label)}${sensorBadge}${badge}</div>
-              <div class="meta">${esc(scene.date)} · ${esc(scene.sensor)}</div>
-              <div class="meta"${areaNote}>${scene.platform === "NISAR" ? "Calibrated water" : "Water"} ≈ ${Number(scene.water_area_sq_km).toLocaleString()} km²${scene.area_note ? "*" : ""}</div>
-            </div>
-            <input class="scene-check" type="checkbox" data-id="${esc(scene.id)}" ${state.selected.has(scene.id) ? "checked" : ""} aria-label="Select ${esc(scene.year)}">`;
-          list.appendChild(card);
-        });
-      }
-
-      function renderLayerControls() {
-        const wrap = $("layer-controls");
-        const scenes = selectedScenes();
-        wrap.innerHTML = "";
-        if (!scenes.length) {
-          wrap.innerHTML = `<div class="message">Select one or more scenes to build the map stack.</div>`;
-          updateFocus();
-          return;
-        }
-        scenes.forEach((scene) => {
-          const value = Math.round((state.opacity[scene.id] ?? 0) * 100);
-          const row = document.createElement("div");
-          row.className = "layer-row";
-          row.innerHTML = `
-            <div class="layer-head">
-              <span class="dot"></span>
-              <span class="layer-title">${esc(scene.year)} · ${esc(scene.label)}${scene.platform ? ` · ${esc(scene.platform)}` : ""}</span>
-              <span class="layer-val" id="op-${esc(scene.id)}">${value}%</span>
-            </div>
-            <div class="layer-body">
-              <input type="range" min="0" max="100" value="${value}" data-opacity="${esc(scene.id)}" aria-label="${esc(scene.year)} opacity">
-              <button class="btn tiny" type="button" data-solo="${esc(scene.id)}">Solo</button>
-            </div>`;
-          wrap.appendChild(row);
-        });
-      }
-
-      function updateLayerControlValues() {
-        selectedScenes().forEach((scene) => {
-          const value = Math.round((state.opacity[scene.id] ?? 0) * 100);
-          const input = document.querySelector(`input[data-opacity="${scene.id}"]`);
-          const label = $(`op-${scene.id}`);
-          if (input) input.value = String(value);
-          if (label) label.textContent = `${value}%`;
-        });
-        $("selected-count").textContent = String(state.selected.size);
-      }
-
-      function updateAiSelects() {
-        const selected = selectedScenes();
-        const options = selected.length >= 2 ? selected : state.scenes;
-        const ids = new Set(options.map((scene) => scene.id));
-        if (!ids.has(state.before)) state.before = options[0] ? options[0].id : null;
-        if (!ids.has(state.after)) state.after = options.length ? options[options.length - 1].id : null;
-        if (state.before && state.after && state.before === state.after && options.length > 1) {
-          state.after = options[options.length - 1].id;
-        }
-        const html = options.map((scene) =>
-          `<option value="${esc(scene.id)}">${esc(scene.year)} · ${esc(scene.label)}${scene.platform ? ` · ${esc(scene.platform)}` : ""}</option>`
-        ).join("");
-        $("before-select").innerHTML = html;
-        $("after-select").innerHTML = html;
-        if (state.before) $("before-select").value = state.before;
-        if (state.after) $("after-select").value = state.after;
-      }
-
-      function refreshSelectionUI() {
-        renderSceneCards();
-        renderLayerControls();
-        updateAiSelects();
-        updateLayerControlValues();
-        syncLayers();
-      }
-
-      function setSceneSelected(id, isSelected) {
-        if (!sceneById(id)) return;
-        stopPlayback();
-        if (isSelected) {
-          state.selected.add(id);
-          if (state.opacity[id] === undefined) state.opacity[id] = 0.5;
-        } else {
-          state.selected.delete(id);
-        }
-        refreshSelectionUI();
-      }
-
-      function selectAllScenes() {
-        stopPlayback();
-        state.scenes.forEach((scene) => {
-          state.selected.add(scene.id);
-          if (state.opacity[scene.id] === undefined) state.opacity[scene.id] = 0.5;
-        });
-        refreshSelectionUI();
-      }
-
-      function clearAllScenes() {
-        stopPlayback();
-        state.selected.clear();
-        refreshSelectionUI();
-      }
-
-      async function loadTimeline() {
-        try {
-          const timeline = await api("/api/sar/gerd/timeline");
-          state.timeline = timeline;
-          state.scenes = timeline.scenes;
-          const sentinelScenes = timeline.scenes.filter((scene) => scene.platform === "Sentinel-1");
-          const defaultScenes = sentinelScenes.length ? sentinelScenes : timeline.scenes;
-          const first = defaultScenes[0];
-          const last = defaultScenes[defaultScenes.length - 1];
-          state.selected = new Set();
-          state.opacity = {};
-          timeline.scenes.forEach((scene) => { state.opacity[scene.id] = 0; });
-          if (first) {
-            state.selected.add(first.id);
-            state.opacity[first.id] = timeline.scenes.length > 1 ? 0.5 : 0.85;
-          }
-          if (last && (!first || last.id !== first.id)) {
-            state.selected.add(last.id);
-            state.opacity[last.id] = 0.65;
-          }
-          state.before = first ? first.id : null;
-          state.after = last ? last.id : null;
-          $("mission-name").textContent = `${timeline.location_name} · Ethiopia`;
-          refreshSelectionUI();
-          if (state.mapReady) {
-            addMapChrome();
-            fitTimeline();
-          }
-        } catch (error) {
-          $("scene-list").innerHTML = `<div class="message err">Could not load timeline: ${esc(error.message)}</div>`;
-        }
-      }
-
-      async function loadNisarChange() {
-        const output = $("nisar-change");
-        try {
-          const change = await api("/api/sar/nisar/change", {}, 30000);
-          const fmt = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
-          const net = Number(change.net_change_sq_km);
-          const sign = net >= 0 ? "+" : "−";
-          const maskLink = (scene) => scene.water_mask_url
-            ? `<a href="${esc(scene.water_mask_url)}" target="_blank" rel="noreferrer">mask</a>`
-            : "";
-          output.innerHTML = `
-            <div class="message tiny"><strong>${esc(change.before.date)}</strong> ${fmt(change.before.water_area_sq_km)} km² → <strong>${esc(change.after.date)}</strong> ${fmt(change.after.water_area_sq_km)} km²</div>
-            <div class="meta">Net ${sign}${fmt(Math.abs(net))} km² · persistent ${fmt(change.persistent_sq_km)} · lost ${fmt(change.lost_sq_km)} · new ${fmt(change.new_sq_km)}</div>
-            <div class="meta">Jaccard ${Number(change.jaccard).toFixed(3)} · common Otsu ${Number(change.threshold_db).toFixed(2)} dB · 20 m HH GCOV</div>
-            <div class="tiny muted">Threshold-based calibrated estimate, not independently validated. ${maskLink(change.before)} ${maskLink(change.after)}</div>`;
-        } catch (error) {
-          output.innerHTML = `<div class="message tiny err">${esc(error.message)}</div>`;
-        }
-      }
-
-      async function loadHealth() {
-        const chip = $("api-health");
-        try {
-          const health = await api("/api/health", {}, 15000);
-          chip.className = "chip ok";
-          chip.textContent = `API · ${health.status}`;
-          chip.title = health.mission;
-        } catch (error) {
-          chip.className = "chip err";
-          chip.textContent = "API · offline";
-          chip.title = error.message;
-        }
-      }
-
-      async function loadAiStatus() {
-        const chip = $("ai-status");
-        try {
-          const status = await api("/api/ai/status", {}, 20000);
-          const gemini = status.gemini_configured ? "Gemini" : "fallback";
-          const mode = status.retrieval_mode || "lexical";
-          chip.className = `chip ${status.gemini_configured ? "ok" : "warn"}`;
-          chip.textContent = `AI · ${gemini} · ${mode} RAG`;
-          chip.title = `${status.generation_model || "model n/a"} · ${status.knowledge_base_chunks} chunks · embeddings ${status.embeddings_ready ? "ready" : "off"}`;
-        } catch (error) {
-          chip.className = "chip err";
-          chip.textContent = "AI · status unavailable";
-          chip.title = error.message;
-        }
-      }
-
-      function renderAiOutput(result, elapsedMs) {
-        const output = $("ai-output");
-        output.innerHTML = "";
-        const badge = document.createElement("div");
-        const fallback = result.model_used === "local-fallback";
-        badge.className = `ai-badge${fallback ? " warn" : ""}`;
-        badge.textContent = `${result.model_used || "unknown model"} · ${result.retrieval_mode || "n/a"} RAG · ${(elapsedMs / 1000).toFixed(1)}s`;
-        output.appendChild(badge);
-
-        const explanation = document.createElement("p");
-        explanation.className = "ai-explanation";
-        explanation.textContent = result.explanation;
-        output.appendChild(explanation);
-
-        if (Array.isArray(result.key_takeaways) && result.key_takeaways.length) {
-          const heading = document.createElement("h3");
-          heading.className = "tiny";
-          heading.textContent = "Key takeaways";
-          output.appendChild(heading);
-          const list = document.createElement("ul");
-          result.key_takeaways.forEach((takeaway) => {
-            const item = document.createElement("li");
-            item.textContent = takeaway;
-            list.appendChild(item);
-          });
-          output.appendChild(list);
-        }
-
-        if (Array.isArray(result.citations) && result.citations.length) {
-          const citations = document.createElement("div");
-          citations.className = "citation-box";
-          citations.textContent = `Sources: ${result.citations.join(", ")}`;
-          output.appendChild(citations);
-        }
-
-        if (result.fallback_reason) {
-          const reason = document.createElement("div");
-          reason.className = "fallback-box";
-          reason.textContent = `Fallback reason: ${result.fallback_reason}`;
-          output.appendChild(reason);
-        }
-      }
-
-      async function runAiAnalysis(event) {
-        event.preventDefault();
-        const button = $("ai-submit");
-        const output = $("ai-output");
-        if (!state.before || !state.after) {
-          output.innerHTML = `<div class="message err">Load the timeline and choose two scenes first.</div>`;
-          return;
-        }
-        const question = $("ai-question").value.trim();
-        if (!question) {
-          output.innerHTML = `<div class="message err">Type a question first.</div>`;
-          return;
-        }
-        button.disabled = true;
-        output.innerHTML = `<div class="loading">Embedding question, retrieving facts, and asking Gemini…</div>`;
-        const started = performance.now();
-        try {
-          const result = await api("/api/ai/analyze-change", {
-            method: "POST",
-            body: JSON.stringify({
-              location_name: state.timeline ? state.timeline.location_name : "GERD",
-              before_scene_id: state.before,
-              after_scene_id: state.after,
-              user_question: question,
-            }),
-          }, 120000);
-          renderAiOutput(result, performance.now() - started);
-          loadAiStatus();
-        } catch (error) {
-          output.innerHTML = `<div class="message err">AI request failed: ${esc(error.message)}</div>`;
-        } finally {
-          button.disabled = false;
-        }
-      }
-
-      function renderSearchResults(result) {
-        const output = $("search-output");
-        output.innerHTML = "";
-        if (!result.results || result.results.length === 0) {
-          const message = document.createElement("div");
-          message.className = "message";
-          message.textContent = result.message || "No scenes matched this query.";
-          output.appendChild(message);
-          return;
-        }
-        const summary = document.createElement("div");
-        summary.className = "message tiny";
-        summary.textContent = `${result.count} scene(s) returned from NASA ASF.${result.message ? " " + result.message : ""}`;
-        output.appendChild(summary);
-
-        result.results.forEach((scene) => {
-          const card = document.createElement("div");
-          card.className = "result-card";
-          const thumb = document.createElement("div");
-          if (scene.browse_url) {
-            const image = document.createElement("img");
-            image.src = scene.browse_url;
-            image.alt = scene.scene_id;
-            image.loading = "lazy";
-            thumb.appendChild(image);
-          } else {
-            thumb.textContent = "No browse image";
-            thumb.className = "tiny muted";
-          }
-          const body = document.createElement("div");
-          body.innerHTML = `
-            <div class="id">${esc(scene.scene_id)}</div>
-            <div class="meta">${esc(scene.platform || "platform n/a")} · ${esc(scene.frequency_band || "band n/a")} · ${esc(scene.processing_level || "level n/a")}</div>
-            <div class="meta">${esc(scene.acquisition_time || "time n/a")} · Polarization: ${esc(scene.polarization || "n/a")}</div>
-            ${scene.bounds ? `<div class="meta">Bounds: ${Number(scene.bounds.west).toFixed(3)}, ${Number(scene.bounds.south).toFixed(3)} → ${Number(scene.bounds.east).toFixed(3)}, ${Number(scene.bounds.north).toFixed(3)}</div>` : ""}`;
-          if (scene.bounds) {
-            const zoom = document.createElement("button");
-            zoom.type = "button";
-            zoom.className = "btn tiny";
-            zoom.textContent = "Zoom to footprint";
-            zoom.addEventListener("click", () => {
-              if (!state.mapReady) return;
-              const b = scene.bounds;
-              state.map.fitBounds([[b.west, b.south], [b.east, b.north]], {
-                padding: 60,
-                maxZoom: 9,
-                duration: 900,
-              });
-            });
-            body.appendChild(zoom);
-          }
-          card.appendChild(thumb);
-          card.appendChild(body);
-          output.appendChild(card);
-        });
-      }
-
-      async function runLiveSearch(event) {
-        event.preventDefault();
-        const button = $("search-submit");
-        const output = $("search-output");
-        const payload = {
-          lat: Number($("lat").value),
-          lon: Number($("lon").value),
-          start_date: $("start-date").value,
-          end_date: $("end-date").value,
-          max_results: Number($("max-results").value),
-        };
-        if (!payload.start_date || !payload.end_date) {
-          output.innerHTML = `<div class="message err">Choose both dates.</div>`;
-          return;
-        }
-        button.disabled = true;
-        output.innerHTML = `<div class="loading">Searching NASA ASF… (this can take 10–30 seconds)</div>`;
-        try {
-          const result = await api("/api/sar/search-live", {
-            method: "POST",
-            body: JSON.stringify(payload),
-          }, 90000);
-          renderSearchResults(result);
-        } catch (error) {
-          output.innerHTML = `<div class="message err">Search failed: ${esc(error.message)}</div>`;
-        } finally {
-          button.disabled = false;
-        }
-      }
-
-      function bindEvents() {
-        $("scene-list").addEventListener("click", (event) => {
-          if (event.target.closest("a")) return;
-          if (event.target.matches("input[type=checkbox]")) return;
-          const card = event.target.closest(".scene-card");
-          if (card) setSceneSelected(card.dataset.id, !state.selected.has(card.dataset.id));
-        });
-        $("scene-list").addEventListener("change", (event) => {
-          if (event.target.matches("input[type=checkbox]")) {
-            setSceneSelected(event.target.dataset.id, event.target.checked);
-          }
-        });
-        $("select-all").addEventListener("click", selectAllScenes);
-        $("clear-all").addEventListener("click", clearAllScenes);
-        $("layer-controls").addEventListener("input", (event) => {
-          if (event.target.matches("input[data-opacity]")) {
-            setOpacity(event.target.dataset.opacity, event.target.value);
-          }
-        });
-        $("layer-controls").addEventListener("click", (event) => {
-          const button = event.target.closest("button[data-solo]");
-          if (button) soloScene(button.dataset.solo);
-        });
-        $("play-btn").addEventListener("click", () => {
-          if (state.playback.active) stopPlayback();
-          else startPlayback();
-        });
-        $("speed-select").addEventListener("change", () => {
-          if (state.playback.active) startPlayback();
-        });
-        $("pair-first-last").addEventListener("click", () => {
-          const selected = selectedScenes();
-          const sentinel = state.scenes.filter((scene) => scene.platform === "Sentinel-1");
-          const scenes = selected.length >= 2 ? selected : (sentinel.length ? sentinel : state.scenes);
-          if (!scenes.length) return;
-          state.before = scenes[0].id;
-          state.after = scenes[scenes.length - 1].id;
-          $("before-select").value = state.before;
-          $("after-select").value = state.after;
-        });
-        $("pair-nisar").addEventListener("click", () => {
-          const nisar = state.scenes.filter((scene) => scene.platform === "NISAR");
-          if (nisar.length < 2) return;
-          state.before = nisar[0].id;
-          state.after = nisar[nisar.length - 1].id;
-          nisar.forEach((scene) => {
-            state.selected.add(scene.id);
-            if (state.opacity[scene.id] === undefined || state.opacity[scene.id] === 0) {
-              state.opacity[scene.id] = 0.55;
-            }
-          });
-          refreshSelectionUI();
-        });
-        $("before-select").addEventListener("change", (event) => { state.before = event.target.value; });
-        $("after-select").addEventListener("change", (event) => { state.after = event.target.value; });
-        $("ai-form").addEventListener("submit", runAiAnalysis);
-        $("search-form").addEventListener("submit", runLiveSearch);
-        $("terrain-toggle").addEventListener("click", () => {
-          state.terrain = !state.terrain;
-          applyTerrain();
-          const button = $("terrain-toggle");
-          button.classList.toggle("active", state.terrain);
-          button.textContent = state.terrain ? "Terrain · ON" : "Terrain · OFF";
-        });
-        $("basemap-toggle").addEventListener("click", (event) => {
-          const button = event.target.closest("button[data-base]");
-          if (button) setBasemap(button.dataset.base);
-        });
-        $("reset-view").addEventListener("click", fitTimeline);
-      }
-
-      async function init() {
-        bindEvents();
-        initMap();
-        await Promise.allSettled([loadHealth(), loadAiStatus(), loadTimeline(), loadNisarChange()]);
-      }
-
-      init();
-    })();
-  </script>
 </body>
 </html>

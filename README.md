@@ -335,7 +335,10 @@ Ethio_SARs/
 │     ├─ nisar_2026_10_25.png  Legacy public-browse fallback
 │     └─ nisar_2026_11_06.png  Legacy public-browse fallback
 ├─ frontend/
-│  └─ index.html              Single-page MapLibre mission console
+│  ├─ index.html              Lake Nigat Explorer
+│  ├─ app.js                  UI state, map layers, and API requests
+│  ├─ styles.css              Responsive layout and styling
+│  └─ thumbnails/             Lightweight previews of the curated radar scenes
 ├─ raw_tiffs/                 Original Sentinel-1 GeoTIFFs (gitignored)
 │  ├─ nisar_browse/           Public NISAR browse PNG/KML cache (gitignored)
 │  └─ nisar_gcov/             Full NISAR GCOV HDF5 cache (gitignored)
@@ -602,41 +605,24 @@ the frontend can show exactly what happened.
 
 ## Frontend and map rendering
 
-`frontend/index.html` is a single-page mission console served at `/` and
-`/demo/`.
+FastAPI serves the Lake Nigat Explorer at `/` and `/demo/`. The frontend uses
+HTML, CSS, vanilla JavaScript, and MapLibre GL JS with no Node build step.
 
-### Map stack
+- **Explore** opens an acquisition from the timeline. Use its checkbox to add
+  it to the map stack. Each layer has its own opacity, and NISAR layers can show
+  their water masks. Play cycles through the selected scenes when at least two
+  are selected and through the full timeline otherwise.
+- **Compare** blends two acquisitions on the map and sends questions about the
+  pair to the change explainer. The Sentinel-1 filling and NISAR repeat presets
+  select a pair from the same mission. The NISAR summary shows the 12-day net
+  change, persistent, new, and lost water, and the threshold and overlap.
+- **Search** queries NASA ASF by coordinate and date. Results can include browse
+  images, product download links, and a map view of the footprint.
 
-- **MapLibre GL JS 4.7.1** loaded from unpkg.
-- **Esri World Imagery** satellite basemap.
-- **CARTO dark** basemap with OSM attribution.
-- **AWS Terrain Tiles** (`terrarium` encoding) for 3D terrain.
-- A hillshade layer in dark mode.
-- The GERD marker, dashed bounds outline, and automatic fit to the analysis
-  window.
-- Each selected SAR year is a MapLibre `image` source with the same bounds and
-  its own raster layer. Opacity, solo, and playback change those layers live.
-
-### Controls
-
-- Click a scene card or checkbox to add/remove it from the stack.
-- Per-layer opacity slider and **Solo** button.
-- **Play selected** animates through selected years; speed is configurable.
-- **Terrain** toggles 3D relief.
-- **Satellite / Dark** switches basemaps.
-- **Reset** restores the GERD view.
-- The AI panel has independent **Before** and **After** selectors, plus
-  **S-1 first ↔ last** and **NISAR 12-day** presets.
-- Scene cards show platform/band badges; NISAR cards show calibrated GCOV water
-  areas with `*` and an explanatory tooltip.
-- The **Calibrated NISAR Change** panel reports the 12-day net change, persistent
-  water, lost/new water, Jaccard overlap, and threshold.
-- The ASF panel searches any latitude/longitude and date range, shows browse
-  thumbnails, and can zoom the map to a result footprint.
-
-The frontend needs internet access for the MapLibre CDN and map tiles. If the
-CDN is blocked, the page shows a map fallback message but the rest of the UI
-still works.
+MapLibre drapes each scene within the bounds supplied by FastAPI. Satellite
+and Dark use Esri World Imagery, and Terrain uses AWS Terrarium elevation tiles.
+The interactive map needs the MapLibre CDN and map tile services. If MapLibre
+is unavailable, the explorer displays the locally served radar imagery.
 
 ---
 
@@ -834,7 +820,6 @@ Earthdata credentials.
 - FastAPI and Uvicorn
 - MapLibre GL JS
 - Esri World Imagery
-- OpenStreetMap contributors and CARTO
 - AWS Terrain Tiles
 - Google Gemini API
 - NASA Space Apps Challenge
